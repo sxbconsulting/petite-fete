@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+  PETITE FÊTE — Once Kids · Appareil photo jetable pour les fêtes d'enfants
+  Fichier unique · HTML + CSS + JS vanilla + supabase-js v2 (CDN)
+================================================================================
+
+  MIGRATION SQL À EXÉCUTER DANS SUPABASE (SQL Editor) :
+  Projet : yiuloyqlrvbptvgkuizl (petite-fete, compte dédié)
+
+-- Tables Once Kids
+create table if not exists once_events (
+  id uuid primary key default gen_random_uuid(),
+  code text unique not null,           -- "FETE-XXXX"
+  event_name text not null,            -- "Anniversaire de Lana 🎂"
+  event_type text default 'birthday',  -- birthday, school, holiday, other
+  child_name text,
+  host_name text,
+  reveal_mode text default 'immediate', -- immediate ou scheduled
+  reveal_at timestamptz,
+  is_closed boolean default false,
+  created_at timestamptz default now()
+);
+
+create table if not exists once_photos (
+  id uuid primary key default gen_random_uuid(),
+  event_id uuid references once_events(id) on delete cascade,
+  photo_data text not null,            -- base64 JPEG compressé
+  taken_by text,                       -- prénom du photographe
+  taken_at timestamptz default now(),
+  emoji_reaction text                  -- réaction optionnelle
+);
+
+-- RLS permissive (comme pr_families)
+alter table once_events enable row level security;
+alter table once_photos enable row level security;
+create policy "allow all once_events" on once_events for all using (true) with check (true);
+create policy "allow all once_photos" on once_photos for all using (true) with check (true);
+
+-- Realtime (Database > Replication > cocher once_photos, ou :)
+alter publication supabase_realtime add table once_photos;
+
+================================================================================
+-->
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffd6e8">
+<meta name="description" content="L'album magique de la fête : chaque invité prend des photos, tout le monde les retrouve au même endroit.">
+<title>📸 Nos souvenirs ✨</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --ink:#3a2e52; --ink-soft:#7a6f96;
+  --gold:#ffb830; --mint:#4ecb8f; --card:#ffffff;
+  --r:28px; --r-sm:18px;
+  --sh:0 12px 28px rgba(58,46,82,.12);
+  --sh-lift:0 18px 40px rgba(58,46,82,.18);
+  --bounce:cubic-bezier(.34,1.56,.64,1);
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;margin:0;padding:0}
+body{
+  font-family:'Fredoka',system-ui,-apple-system,sans-serif;
+  color:var(--ink); overflow:hidden;
+  background:#c9ecff;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font-family:inherit;color:inherit}
+button{border:none;background:none;cursor:pointer}
+
+/* ---------- CIELS ---------- */
+#sky{position:fixed;inset:0;z-index:0;transition:background .7s ease}
+body[data-sky="home"]    #sky{background:linear-gradient(170deg,#ffd6e8 0%,#ffe9c2 52%,#c9ecff 100%)}
+body[data-sky="camera"]  #sky{background:linear-gradient(170deg,#ffe9b3 0%,#ffd98a 48%,#bfe3ff 100%)}
+body[data-sky="gallery"] #sky{background:linear-gradient(170deg,#8ed0ff 0%,#bfe6ff 52%,#e8f7d4 100%)}
+body[data-sky="night"]   #sky{background:linear-gradient(170deg,#241b47 0%,#3a2d6b 55%,#5a4a94 100%)}
+body[data-sky="night"]{color:#fff}
+
+/* ---------- DÉCOR ---------- */
+#deco{position:fixed;inset:0;z-index:1;pointer-events:none;overflow:hidden}
+.fl{position:absolute;font-size:26px;opacity:0;will-change:transform}
+@keyframes rise{
+  0%{transform:translateY(18vh) rotate(-8deg) scale(.9);opacity:0}
+  12%{opacity:.85}
+  88%{opacity:.75}
+  100%{transform:translateY(-112vh) rotate(14deg) scale(1.05);opacity:0}
+}
+@keyframes twinkle{
+  0%,100%{opacity:.15;transform:scale(.7)}
+  50%{opacity:.95;transform:scale(1.15)}
+}
+.fl.rise{animation:rise linear infinite}
+.fl.twk{animation:twinkle ease-in-out infinite}
+
+/* ---------- SHELL ---------- */
+#app{
+  position:relative;z-index:2;height:100%;
+  max-width:460px;margin:0 auto;
+  display:flex;flex-direction:column;
+}
+.screen{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 20px 24px;scrollbar-width:none}
+.screen::-webkit-scrollbar{display:none}
+.pad-top{padding-top:calc(18px + env(safe-area-inset-top))}
+.hidden{display:none !important}
+
+/* ---------- TYPO ---------- */
+h1{font-size:32px;font-weight:700;margin:0;line-height:1.15;letter-spacing:-.5px}
+h2{font-size:22px;font-weight:600;margin:0 0 4px}
+.sub{color:var(--ink-soft);font-size:15px;margin:6px 0 0;font-weight:400}
+body[data-sky="night"] .sub{color:#cfc4ee}
+.eyebrow{
+  font-family:'Nunito',sans-serif;font-weight:800;font-size:11px;
+  letter-spacing:1.4px;text-transform:uppercase;color:var(--ink-soft);
+}
+body[data-sky="night"] .eyebrow{color:#b7a9e2}
+
+/* ---------- CARTES ---------- */
+.card{
+  background:var(--card);border-radius:var(--r);padding:20px;
+  box-shadow:var(--sh);margin-top:14px;
+}
+body[data-sky="night"] .card{background:rgba(255,255,255,.08);backdrop-filter:blur(10px);color:#fff}
+
+.choice{
+  display:flex;align-items:center;gap:14px;width:100%;text-align:left;
+  background:var(--card);border-radius:var(--r);padding:18px 20px;
+  box-shadow:var(--sh);margin-top:12px;
+  transition:transform .28s var(--bounce),box-shadow .28s ease;
+}
+.choice:active{transform:scale(.96);box-shadow:var(--sh-lift)}
+.choice .ic{font-size:30px;line-height:1}
+.choice .tx{flex:1}
+.choice .tt{font-size:18px;font-weight:600}
+.choice .ds{font-size:13px;color:var(--ink-soft);margin-top:2px}
+.choice .ar{color:var(--ink-soft);font-size:20px}
+
+/* ---------- FORM ---------- */
+label.fl-lb{
+  display:block;font-family:'Nunito',sans-serif;font-weight:800;font-size:11px;
+  letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-soft);margin:16px 0 6px;
+}
+.card > label.fl-lb:first-child{margin-top:0}
+input[type=text],input[type=datetime-local]{
+  width:100%;border:2px solid #ece7f5;border-radius:var(--r-sm);
+  padding:14px 16px;font-size:16px;font-weight:500;background:#fbfaff;
+  outline:none;transition:border-color .2s ease,background .2s ease;
+}
+input[type=text]:focus,input[type=datetime-local]:focus{border-color:var(--gold);background:#fff}
+input.code-in{text-transform:uppercase;letter-spacing:3px;font-weight:600;text-align:center;font-size:20px}
+
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{
+  border:2px solid #ece7f5;background:#fbfaff;border-radius:999px;
+  padding:9px 14px;font-size:14px;font-weight:500;
+  transition:transform .25s var(--bounce),border-color .2s,background .2s;
+}
+.chip[aria-pressed="true"]{border-color:var(--gold);background:#fff6e2}
+.chip:active{transform:scale(.93)}
+
+.btn{
+  display:block;width:100%;border-radius:999px;padding:16px;
+  font-size:17px;font-weight:600;color:#fff;background:var(--ink);
+  box-shadow:var(--sh);margin-top:18px;
+  transition:transform .28s var(--bounce),opacity .2s;
+}
+.btn:active{transform:scale(.96)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn.gold{background:var(--gold);color:#4a3410}
+.btn.mint{background:var(--mint);color:#0f3f28}
+.btn.ghost{background:transparent;color:var(--ink-soft);box-shadow:none;font-size:15px;padding:12px;margin-top:8px}
+body[data-sky="night"] .btn.ghost{color:#cfc4ee}
+.btn.danger{background:#fff1f1;color:#c0392b;box-shadow:none;border:2px solid #ffd9d9}
+
+.linkish{
+  display:block;width:100%;text-align:center;color:var(--ink-soft);
+  font-size:14px;padding:16px 0 4px;text-decoration:underline;text-underline-offset:3px;
+}
+
+/* ---------- CODE BOX ---------- */
+.codebox{
+  border:3px dashed var(--gold);border-radius:var(--r);
+  padding:22px 18px;text-align:center;background:#fffaf0;margin-top:16px;
+}
+.codebox .cd{
+  font-size:34px;font-weight:700;letter-spacing:4px;color:var(--ink);
+  margin:8px 0 4px;
+}
+.codebox .hint{font-size:13px;color:var(--ink-soft)}
+
+/* ---------- HEADER ÉVÉNEMENT ---------- */
+.ev-head{
+  padding:calc(14px + env(safe-area-inset-top)) 20px 12px;
+  display:flex;align-items:flex-start;gap:12px;
+}
+.ev-head .ev-tt{font-size:20px;font-weight:600;line-height:1.2}
+.ev-head .ev-meta{font-size:12.5px;color:var(--ink-soft);margin-top:3px;font-weight:500}
+body[data-sky="night"] .ev-head .ev-meta{color:#cfc4ee}
+.count-pill{
+  background:var(--card);border-radius:999px;padding:8px 14px;
+  font-size:13px;font-weight:600;box-shadow:var(--sh);white-space:nowrap;
+}
+body[data-sky="night"] .count-pill{background:rgba(255,255,255,.14);color:#fff}
+
+/* ---------- INDICATEUR SYNC ---------- */
+#sync{
+  position:fixed;top:calc(8px + env(safe-area-inset-top));left:10px;z-index:60;
+  background:rgba(255,255,255,.9);border-radius:999px;padding:5px 11px;
+  font-size:12px;font-weight:600;color:var(--ink-soft);box-shadow:var(--sh);
+  opacity:0;transform:translateY(-6px);transition:opacity .3s,transform .3s;pointer-events:none;
+}
+#sync.on{opacity:1;transform:translateY(0)}
+
+/* ---------- BOUTON CAMÉRA ---------- */
+.cam-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;min-height:280px}
+.cam-btn{
+  width:120px;height:120px;border-radius:50%;background:var(--gold);
+  display:grid;place-items:center;font-size:48px;
+  box-shadow:0 16px 34px rgba(255,184,48,.45);
+  transition:transform .3s var(--bounce);
+  position:relative;
+}
+.cam-btn:active{transform:scale(.9)}
+.cam-btn::after{
+  content:"";position:absolute;inset:-12px;border-radius:50%;
+  border:2px solid rgba(255,184,48,.4);animation:halo 2.6s ease-in-out infinite;
+}
+@keyframes halo{0%,100%{transform:scale(1);opacity:.6}50%{transform:scale(1.09);opacity:.15}}
+.cam-cap{margin-top:16px;font-size:15px;font-weight:500;color:var(--ink)}
+.cam-sub{font-size:13px;color:var(--ink-soft);margin-top:4px;text-align:center;max-width:260px}
+
+/* ---------- STRIP GALERIE ---------- */
+.strip-lb{display:flex;justify-content:space-between;align-items:baseline;margin:4px 4px 8px}
+.strip{display:flex;gap:10px;overflow-x:auto;padding:2px 0 8px;scrollbar-width:none}
+.strip::-webkit-scrollbar{display:none}
+.strip img{
+  width:78px;height:78px;object-fit:cover;border-radius:var(--r-sm);flex:0 0 auto;
+  box-shadow:var(--sh);border:3px solid #fff;
+}
+.strip .empty{font-size:13.5px;color:var(--ink-soft);padding:12px 2px}
+
+/* ---------- GRILLE ---------- */
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+.ph{
+  background:#fff;border-radius:20px;overflow:hidden;box-shadow:var(--sh);
+  position:relative;animation:pop .45s var(--bounce) both;
+}
+@keyframes pop{0%{transform:translateY(22px) scale(.9);opacity:0}100%{transform:none;opacity:1}}
+.ph img{width:100%;aspect-ratio:1;object-fit:cover;display:block}
+.ph .by{
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  padding:8px 10px;font-size:12.5px;font-weight:500;color:var(--ink);
+}
+.ph .rx{font-size:15px}
+
+/* ---------- ÉTAT VIDE ---------- */
+.empty-state{text-align:center;padding:44px 20px;color:var(--ink-soft)}
+.empty-state .big{font-size:44px}
+.empty-state .t{font-size:17px;font-weight:600;color:var(--ink);margin-top:10px}
+body[data-sky="night"] .empty-state .t{color:#fff}
+.empty-state .d{font-size:14px;margin-top:6px;line-height:1.5}
+
+/* ---------- BARRE BASSE ---------- */
+.tabbar{
+  display:flex;background:var(--card);box-shadow:0 -8px 24px rgba(58,46,82,.1);
+  padding:8px 6px calc(8px + env(safe-area-inset-bottom));
+  border-radius:var(--r) var(--r) 0 0;
+}
+.tabbar button{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  padding:8px 0;font-size:11px;font-weight:600;color:var(--ink-soft);
+  font-family:'Nunito',sans-serif;letter-spacing:.4px;text-transform:uppercase;
+  transition:transform .28s var(--bounce);
+}
+.tabbar button .ti{font-size:22px;filter:grayscale(1);opacity:.55;transition:.25s}
+.tabbar button[aria-selected="true"]{color:var(--ink)}
+.tabbar button[aria-selected="true"] .ti{filter:none;opacity:1;transform:translateY(-1px) scale(1.12)}
+.tabbar button:active{transform:scale(.92)}
+
+/* ---------- OVERLAYS ---------- */
+.ov{
+  position:fixed;inset:0;z-index:70;background:rgba(36,27,71,.94);
+  display:flex;flex-direction:column;
+  animation:fade .25s ease both;
+}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.ov .ov-body{flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:16px;overflow-y:auto}
+.ov img.shot{max-width:100%;max-height:46vh;border-radius:22px;box-shadow:0 20px 50px rgba(0,0,0,.4);border:4px solid #fff}
+.ov .ov-panel{width:100%;max-width:420px;margin-top:16px}
+.ov .ov-panel .fl-lb{color:#c9bde9}
+.ov input[type=text]{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff}
+.ov input[type=text]::placeholder{color:rgba(255,255,255,.5)}
+.rx-row{display:flex;justify-content:space-between;gap:8px;margin-top:8px}
+.rx-btn{
+  flex:1;font-size:28px;padding:10px 0;border-radius:18px;
+  background:rgba(255,255,255,.1);border:2px solid transparent;
+  transition:transform .28s var(--bounce),background .2s,border-color .2s;
+}
+.rx-btn[aria-pressed="true"]{background:rgba(255,184,48,.28);border-color:var(--gold);transform:scale(1.06)}
+.rx-btn:active{transform:scale(.9)}
+.ov-actions{display:flex;gap:10px;margin-top:14px}
+.ov-actions .btn{margin-top:0}
+
+/* lightbox */
+#lightbox{background:rgba(20,14,40,.97)}
+#lightbox .lb-img{max-width:100%;max-height:70vh;border-radius:20px;box-shadow:0 20px 50px rgba(0,0,0,.5)}
+#lightbox .lb-cap{color:#fff;text-align:center;margin-top:14px;font-size:15px;font-weight:500}
+#lightbox .lb-cap span{color:#c9bde9;font-size:13px;display:block;margin-top:3px;font-weight:400}
+.lb-nav{display:flex;justify-content:space-between;align-items:center;width:100%;max-width:420px;margin-top:16px}
+.lb-nav button{
+  width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.12);
+  color:#fff;font-size:22px;display:grid;place-items:center;
+  transition:transform .28s var(--bounce);
+}
+.lb-nav button:active{transform:scale(.88)}
+.lb-nav button[disabled]{opacity:.25;pointer-events:none}
+.ov-close{
+  position:absolute;top:calc(12px + env(safe-area-inset-top));right:14px;
+  width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.16);
+  color:#fff;font-size:20px;display:grid;place-items:center;z-index:2;
+}
+
+/* ---------- RÉVÉLATION ---------- */
+.reveal-wrap{text-align:center;padding:40px 10px}
+.reveal-lock{font-size:56px;animation:sway 3.4s ease-in-out infinite}
+@keyframes sway{0%,100%{transform:rotate(-5deg)}50%{transform:rotate(5deg)}}
+.cd-row{display:flex;justify-content:center;gap:10px;margin-top:22px}
+.cd-cell{background:rgba(255,255,255,.12);border-radius:20px;padding:14px 6px;min-width:70px}
+.cd-cell .n{font-size:28px;font-weight:700;color:#fff;line-height:1}
+.cd-cell .l{font-family:'Nunito',sans-serif;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#c9bde9;margin-top:5px;font-weight:800}
+
+/* ---------- DIVERS ---------- */
+.people{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px}
+.people span{background:#f4f0fb;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500}
+body[data-sky="night"] .people span{background:rgba(255,255,255,.14);color:#fff}
+.row-between{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.mono-code{font-family:'Nunito',sans-serif;font-weight:800;letter-spacing:2px;font-size:15px}
+.toast{
+  position:fixed;left:50%;bottom:96px;transform:translate(-50%,14px);z-index:90;
+  background:var(--ink);color:#fff;border-radius:999px;padding:12px 20px;
+  font-size:14px;font-weight:500;box-shadow:var(--sh-lift);
+  opacity:0;transition:opacity .3s,transform .3s var(--bounce);pointer-events:none;max-width:88vw;text-align:center;
+}
+.toast.on{opacity:1;transform:translate(-50%,0)}
+.note{font-size:13px;color:var(--ink-soft);line-height:1.5;margin-top:10px}
+body[data-sky="night"] .note{color:#cfc4ee}
+.divider{height:1px;background:#efeaf7;margin:18px 0}
+body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
+
+@media (prefers-reduced-motion:reduce){
+  *,*::after,*::before{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+</style>
+</head>
+<body data-sky="home">
+<div id="sky"></div>
+<div id="deco"></div>
+<div id="sync">⟳</div>
+
+<div id="app">
+
+  <!-- ======================= VUE ACCUEIL ======================= -->
+  <section id="view-home" class="screen pad-top">
+    <div style="padding-top:26px">
+      <p class="eyebrow">L'album magique de la fête</p>
+      <h1>📸 Nos souvenirs ✨</h1>
+      <p class="sub">Chaque invité prend des photos avec son téléphone. Tout le monde les retrouve au même endroit.</p>
+    </div>
+
+    <div id="home-choices" style="margin-top:26px">
+      <button class="choice" data-go="create">
+        <span class="ic">🎂</span>
+        <span class="tx"><span class="tt">Créer une fête</span><span class="ds">Tu organises l'événement</span></span>
+        <span class="ar">›</span>
+      </button>
+      <button class="choice" data-go="join">
+        <span class="ic">🔑</span>
+        <span class="tx"><span class="tt">Rejoindre une fête</span><span class="ds">Tu as reçu un code</span></span>
+        <span class="ar">›</span>
+      </button>
+      <a href="#" class="linkish" id="link-local">Utiliser sans synchronisation</a>
+    </div>
+
+    <!-- création -->
+    <div id="form-create" class="hidden">
+      <div class="card">
+        <label class="fl-lb" for="in-evname">Nom de l'événement</label>
+        <input type="text" id="in-evname" placeholder="Anniversaire de Lana 🎂" autocomplete="off">
+
+        <label class="fl-lb" for="in-child">Prénom de l'enfant fêté</label>
+        <input type="text" id="in-child" placeholder="Lana" autocomplete="off">
+
+        <label class="fl-lb" for="in-host">Ton prénom</label>
+        <input type="text" id="in-host" placeholder="Billal" autocomplete="off">
+
+        <label class="fl-lb">Type de fête</label>
+        <div class="chips" id="type-chips">
+          <button class="chip" data-type="birthday" aria-pressed="true">🎂 Anniversaire</button>
+          <button class="chip" data-type="school" aria-pressed="false">🏫 École</button>
+          <button class="chip" data-type="party" aria-pressed="false">🌸 Fête</button>
+          <button class="chip" data-type="holiday" aria-pressed="false">🎄 Noël</button>
+          <button class="chip" data-type="other" aria-pressed="false">✨ Autre</button>
+        </div>
+
+        <label class="fl-lb">Quand voir les photos ?</label>
+        <div class="chips" id="reveal-chips">
+          <button class="chip" data-reveal="immediate" aria-pressed="true">👀 Tout de suite</button>
+          <button class="chip" data-reveal="scheduled" aria-pressed="false">🌙 À la révélation</button>
+        </div>
+        <div id="reveal-when" class="hidden">
+          <label class="fl-lb" for="in-revealat">Heure de la révélation</label>
+          <input type="datetime-local" id="in-revealat">
+          <p class="note">Les photos restent cachées jusqu'à cette heure, comme une pellicule à développer.</p>
+        </div>
+
+        <button class="btn gold" id="btn-create">Créer l'album 🎉</button>
+      </div>
+      <button class="btn ghost" data-go="home">← Retour</button>
+    </div>
+
+    <!-- code généré -->
+    <div id="block-code" class="hidden">
+      <div class="codebox">
+        <p class="eyebrow">Le code de la fête</p>
+        <div class="cd" id="out-code">FETE-····</div>
+        <p class="hint">Partage ce code avec tes invités !</p>
+      </div>
+      <button class="btn mint" id="btn-share">Partager le code 📤</button>
+      <button class="btn" id="btn-enter-created">Ouvrir l'appareil photo 📸</button>
+    </div>
+
+    <!-- rejoindre -->
+    <div id="form-join" class="hidden">
+      <div class="card">
+        <label class="fl-lb" for="in-code">Code de la fête</label>
+        <input type="text" id="in-code" class="code-in" placeholder="FETE-AB2K" maxlength="9" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <button class="btn gold" id="btn-lookup">Chercher la fête 🔎</button>
+
+        <div id="join-found" class="hidden">
+          <div class="divider"></div>
+          <h2 id="join-title">🎉 Tu rejoins : —</h2>
+          <label class="fl-lb" for="in-photog">Ton prénom</label>
+          <input type="text" id="in-photog" placeholder="Ton prénom" autocomplete="off">
+          <button class="btn mint" id="btn-join">Entrer dans la fête 📸</button>
+        </div>
+      </div>
+      <button class="btn ghost" data-go="home">← Retour</button>
+    </div>
+  </section>
+
+  <!-- ======================= VUE APPAREIL ======================= -->
+  <section id="view-camera" class="hidden" style="display:flex;flex-direction:column;flex:1;min-height:0">
+    <header class="ev-head">
+      <div style="flex:1;min-width:0">
+        <div class="ev-tt" id="cam-evname">—</div>
+        <div class="ev-meta" id="cam-meta">—</div>
+      </div>
+      <div class="count-pill" id="cam-count">0 photo 📸</div>
+    </header>
+
+    <div class="screen" style="padding-top:0;display:flex;flex-direction:column">
+      <div class="cam-wrap">
+        <button class="cam-btn" id="btn-shoot" aria-label="Prendre une photo">📷</button>
+        <div class="cam-cap" id="cam-cap">Prends une photo</div>
+        <div class="cam-sub" id="cam-sub">Elle rejoint l'album de toute la fête.</div>
+      </div>
+
+      <div>
+        <div class="strip-lb">
+          <span class="eyebrow">Dernières photos</span>
+          <span class="eyebrow" id="strip-more"></span>
+        </div>
+        <div class="strip" id="strip"><div class="empty">Aucune photo pour l'instant. Lance-toi !</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= VUE GALERIE ======================= -->
+  <section id="view-gallery" class="hidden" style="display:flex;flex-direction:column;flex:1;min-height:0">
+    <header class="ev-head">
+      <div style="flex:1;min-width:0">
+        <div class="ev-tt">🖼️ La galerie</div>
+        <div class="ev-meta" id="gal-meta">—</div>
+      </div>
+    </header>
+    <div class="screen" style="padding-top:0">
+      <div id="gal-body"></div>
+    </div>
+  </section>
+
+  <!-- ======================= VUE RÉGLAGES ======================= -->
+  <section id="view-settings" class="hidden" style="display:flex;flex-direction:column;flex:1;min-height:0">
+    <header class="ev-head">
+      <div style="flex:1;min-width:0">
+        <div class="ev-tt">⚙️ Réglages</div>
+        <div class="ev-meta" id="set-meta">—</div>
+      </div>
+    </header>
+    <div class="screen" style="padding-top:0">
+      <div class="card">
+        <p class="eyebrow">L'événement</p>
+        <h2 id="set-evname">—</h2>
+        <div class="row-between" style="margin-top:10px">
+          <span class="note" style="margin:0">Code à partager</span>
+          <span class="mono-code" id="set-code">—</span>
+        </div>
+        <button class="btn ghost" id="btn-copy-code" style="text-align:center">Copier le code 📋</button>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow">Les photographes</p>
+        <div class="people" id="set-people"><span>Personne encore</span></div>
+      </div>
+
+      <div class="card" id="set-host-card">
+        <p class="eyebrow">Organisateur</p>
+        <p class="note" style="margin-top:6px">Fermer l'album empêche l'ajout de nouvelles photos. La galerie reste consultable par tout le monde.</p>
+        <button class="btn danger" id="btn-close-album">Fermer l'album 🔒</button>
+      </div>
+
+      <button class="btn ghost" id="btn-leave">Quitter cet événement</button>
+      <p class="note" style="text-align:center;padding-bottom:20px">Petite Fête · album partagé</p>
+    </div>
+  </section>
+
+  <nav class="tabbar hidden" id="tabbar">
+    <button data-tab="camera" aria-selected="true"><span class="ti">📸</span>Appareil</button>
+    <button data-tab="gallery" aria-selected="false"><span class="ti">🖼️</span>Galerie</button>
+    <button data-tab="settings" aria-selected="false"><span class="ti">⚙️</span>Réglages</button>
+  </nav>
+</div>
+
+<input type="file" id="file-in" accept="image/*" capture="environment" style="position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px" aria-hidden="true" tabindex="-1">
+<div class="toast" id="toast"></div>
+
+<!-- overlay preview -->
+<div class="ov hidden" id="preview">
+  <button class="ov-close" id="prev-close" aria-label="Fermer">✕</button>
+  <div class="ov-body">
+    <img class="shot" id="prev-img" alt="Photo qui vient d'être prise">
+    <div class="ov-panel">
+      <div id="prev-name-wrap">
+        <label class="fl-lb" for="in-prevname">Ton prénom</label>
+        <input type="text" id="in-prevname" placeholder="Ton prénom" autocomplete="off">
+      </div>
+      <label class="fl-lb">Une réaction ?</label>
+      <div class="rx-row" id="rx-row">
+        <button class="rx-btn" data-rx="🥳" aria-pressed="false">🥳</button>
+        <button class="rx-btn" data-rx="💕" aria-pressed="false">💕</button>
+        <button class="rx-btn" data-rx="😂" aria-pressed="false">😂</button>
+        <button class="rx-btn" data-rx="🌟" aria-pressed="false">🌟</button>
+        <button class="rx-btn" data-rx="🎊" aria-pressed="false">🎊</button>
+      </div>
+      <div class="ov-actions">
+        <button class="btn ghost" id="btn-retake" style="flex:1;color:#c9bde9">Reprendre</button>
+        <button class="btn mint" id="btn-send" style="flex:2">Envoyer 🚀</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- overlay lightbox -->
+<div class="ov hidden" id="lightbox">
+  <button class="ov-close" id="lb-close" aria-label="Fermer">✕</button>
+  <div class="ov-body">
+    <img class="lb-img" id="lb-img" alt="Photo de la fête">
+    <div class="lb-cap" id="lb-cap"></div>
+    <div class="lb-nav">
+      <button id="lb-prev" aria-label="Photo précédente">‹</button>
+      <span class="eyebrow" id="lb-pos" style="color:#c9bde9"></span>
+      <button id="lb-next" aria-label="Photo suivante">›</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+/* ========================= CONFIG ========================= */
+const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
+
+const K = { EV:'once_current_event', PH:'once_photos_cache', SKIP:'once_skip_sync' };
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+
+/* ========================= ÉTAT ========================= */
+let sb = null, online = false, channel = null;
+let state = {
+  event: null,            // {id, code, eventName, eventType, childName, hostName, revealMode, revealAt, isClosed}
+  me: '',                 // prénom photographe
+  isHost: false,
+  photos: [],             // [{id, photo_data, taken_by, taken_at, emoji_reaction}]
+  tab: 'camera',
+  pending: null,          // {dataUrl}
+  rx: '',
+  lbIndex: 0,
+  type: 'birthday',
+  revealMode: 'immediate'
+};
+
+/* ========================= STOCKAGE ========================= */
+function lsGet(k, fb){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : fb; }catch(e){ return fb; } }
+function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } }
+function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
+
+function cachePhotos(){
+  // on garde les 30 dernières pour ne pas exploser le quota
+  const slice = state.photos.slice(-30);
+  if(!lsSet(K.PH, slice)) lsSet(K.PH, state.photos.slice(-10));
+}
+
+/* ========================= SUPABASE ========================= */
+function initSupabase(){
+  if(lsGet(K.SKIP, null) === "1") return false;
+  const valid = /^https:\/\/.+\.supabase\.co\/?$/.test(SUPABASE_URL) && typeof SUPABASE_ANON_KEY === 'string' && SUPABASE_ANON_KEY.length > 100;
+  if(!valid || !window.supabase || !window.supabase.createClient) return false;
+  try{
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth:{ persistSession:false } });
+    return true;
+  }catch(e){ sb = null; return false; }
+}
+
+let syncTimer = null;
+function sync(kind){ // 'busy' | 'ok' | 'off'
+  const el = $('#sync');
+  if(!el) return;
+  el.textContent = kind === 'busy' ? '⟳' : kind === 'ok' ? '✓' : '⚠︎ hors ligne';
+  el.classList.add('on');
+  clearTimeout(syncTimer);
+  if(kind !== 'busy') syncTimer = setTimeout(()=> el.classList.remove('on'), 1600);
+}
+
+/* ========================= UTILS ========================= */
+const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // sans I, L, O, 1
+function makeCode(){
+  let s = '';
+  for(let i=0;i<4;i++) s += ALPHABET[Math.floor(Math.random()*ALPHABET.length)];
+  return 'FETE-' + s;
+}
+function toast(msg, ms){
+  const t = $('#toast');
+  t.textContent = msg; t.classList.add('on');
+  clearTimeout(t._t); t._t = setTimeout(()=> t.classList.remove('on'), ms || 2400);
+}
+
+// Traduit une erreur Supabase en cause concrète + geste de réparation
+function explainError(err){
+  const msg = (err && (err.message || err.details || err.hint)) || '';
+  const code = err && err.code;
+  console.error('[Petite Fête]', code || '', msg, err);
+  if(code === '42P01' || code === 'PGRST205' || /does not exist|schema cache/i.test(msg))
+    return "Tables absentes — exécute le SQL de migration dans Supabase.";
+  if(code === '42501' || /row-level security|violates.*policy/i.test(msg))
+    return "RLS bloque l'écriture — crée les policies \"allow all\".";
+  if(/Failed to fetch|NetworkError|Load failed/i.test(msg))
+    return "Supabase injoignable — projet en pause ou URL incorrecte ?";
+  if(/JWT|apikey|Invalid API key|expired/i.test(msg))
+    return "Clé anon invalide ou expirée.";
+  return "Erreur Supabase : " + (msg || 'inconnue') + " (voir console)";
+}
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function plural(n, one, many){ return n + ' ' + (n > 1 ? many : one); }
+
+/* ========================= DÉCOR ========================= */
+function paintDeco(kind){
+  const d = $('#deco'); d.innerHTML = '';
+  const sets = {
+    home:   { chars:['🎈','🎀','🎈','🎁'], n:9,  mode:'rise', dur:[12,17] },
+    camera: { chars:['✨','🎊','✨','⭐'], n:10, mode:'rise', dur:[9,15] },
+    gallery:{ chars:['✦','✧','✦'],       n:14, mode:'twk',  dur:[2.4,4.6] },
+    night:  { chars:['✦','✧','⭐','🌙'], n:16, mode:'twk',  dur:[2.2,5] }
+  };
+  const cfg = sets[kind] || sets.home;
+  for(let i=0;i<cfg.n;i++){
+    const s = document.createElement('span');
+    s.className = 'fl ' + (cfg.mode === 'rise' ? 'rise' : 'twk');
+    s.textContent = cfg.chars[i % cfg.chars.length];
+    s.style.left = (Math.random()*94 + 2) + '%';
+    const dur = cfg.dur[0] + Math.random()*(cfg.dur[1]-cfg.dur[0]);
+    s.style.animationDuration = dur.toFixed(1) + 's';
+    s.style.animationDelay = (-Math.random()*dur).toFixed(1) + 's';
+    s.style.fontSize = (16 + Math.random()*18).toFixed(0) + 'px';
+    if(cfg.mode === 'twk'){ s.style.top = (Math.random()*86 + 4) + '%'; s.style.opacity = .3; }
+    d.appendChild(s);
+  }
+}
+
+function burstConfetti(){
+  if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const chars = ['🎉','✨','🎊','⭐','💛'];
+  for(let i=0;i<18;i++){
+    const s = document.createElement('span');
+    s.textContent = chars[i % chars.length];
+    s.style.cssText = 'position:fixed;left:50%;top:55%;z-index:95;pointer-events:none;font-size:'+(18+Math.random()*16)+'px';
+    document.body.appendChild(s);
+    const ang = Math.random()*Math.PI*2, dist = 90 + Math.random()*190;
+    s.animate([
+      { transform:'translate(-50%,-50%) scale(.4)', opacity:1 },
+      { transform:'translate(calc(-50% + '+Math.cos(ang)*dist+'px), calc(-50% + '+Math.sin(ang)*dist+'px)) scale(1.15) rotate('+(Math.random()*360|0)+'deg)', opacity:0 }
+    ], { duration: 900 + Math.random()*500, easing:'cubic-bezier(.2,.7,.3,1)' }).onfinish = () => s.remove();
+  }
+}
+
+/* ========================= NAVIGATION ========================= */
+function setSky(k){ document.body.dataset.sky = k; paintDeco(k); }
+
+function showHomeBlock(which){
+  ['home-choices','form-create','block-code','form-join'].forEach(id => $('#'+id).classList.add('hidden'));
+  const map = { home:'home-choices', create:'form-create', code:'block-code', join:'form-join' };
+  $('#' + (map[which] || 'home-choices')).classList.remove('hidden');
+  $('#view-home').scrollTop = 0;
+}
+
+function goHome(){
+  $('#view-camera').classList.add('hidden');
+  $('#view-gallery').classList.add('hidden');
+  $('#view-settings').classList.add('hidden');
+  $('#tabbar').classList.add('hidden');
+  $('#view-home').classList.remove('hidden');
+  setSky('home');
+  showHomeBlock('home');
+}
+
+function goTab(tab){
+  state.tab = tab;
+  $('#view-home').classList.add('hidden');
+  $('#tabbar').classList.remove('hidden');
+  ['camera','gallery','settings'].forEach(t => $('#view-'+t).classList.toggle('hidden', t !== tab));
+  $$('#tabbar button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  if(tab === 'camera')   setSky('camera');
+  if(tab === 'gallery')  setSky(isRevealLocked() ? 'night' : 'gallery');
+  if(tab === 'settings') setSky('gallery');
+  render();
+}
+
+/* ========================= RÉVÉLATION ========================= */
+function isRevealLocked(){
+  const e = state.event;
+  if(!e || e.revealMode !== 'scheduled' || !e.revealAt) return false;
+  return new Date(e.revealAt).getTime() > Date.now();
+}
+
+let cdTimer = null;
+function startCountdown(){
+  clearInterval(cdTimer);
+  cdTimer = setInterval(() => {
+    if(!isRevealLocked()){ clearInterval(cdTimer); goTab('gallery'); toast('Les photos sont révélées ! 🎉'); burstConfetti(); return; }
+    paintCountdown();
+  }, 1000);
+}
+function paintCountdown(){
+  const left = Math.max(0, new Date(state.event.revealAt).getTime() - Date.now());
+  const h = Math.floor(left/3600000), m = Math.floor(left%3600000/60000), s = Math.floor(left%60000/1000);
+  const set = (id, v) => { const el = $(id); if(el) el.textContent = String(v).padStart(2,'0'); };
+  set('#cd-h', h); set('#cd-m', m); set('#cd-s', s);
+}
+
+/* ========================= COMPRESSION PHOTO ========================= */
+function compress(file){
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('decode'));
+      img.onload = () => {
+        const MAX = 800;
+        let w = img.width, h = img.height;
+        if(w > h && w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
+        else if(h >= w && h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
+        ctx.drawImage(img, 0, 0, w, h);
+        let q = 0.75, out = c.toDataURL('image/jpeg', q);
+        // objectif < 150 ko
+        while(out.length * 0.75 > 150 * 1024 && q > 0.4){
+          q -= 0.1;
+          out = c.toDataURL('image/jpeg', q);
+        }
+        resolve(out);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ========================= DONNÉES ========================= */
+async function createEvent(payload){
+  if(!sb) {
+    const local = { id:'local-' + Date.now(), code:makeCode(), ...payload };
+    return local;
+  }
+  for(let attempt = 0; attempt < 5; attempt++){
+    const code = makeCode();
+    const { data, error } = await sb.from('once_events').insert({
+      code,
+      event_name: payload.eventName,
+      event_type: payload.eventType,
+      child_name: payload.childName,
+      host_name: payload.hostName,
+      reveal_mode: payload.revealMode,
+      reveal_at: payload.revealAt
+    }).select().single();
+    if(!error && data) return mapEvent(data);
+    if(error && !/duplicate|unique/i.test(error.message || '')) throw error;
+  }
+  throw new Error('code');
+}
+
+function mapEvent(row){
+  return {
+    id: row.id, code: row.code, eventName: row.event_name, eventType: row.event_type,
+    childName: row.child_name, hostName: row.host_name,
+    revealMode: row.reveal_mode, revealAt: row.reveal_at, isClosed: !!row.is_closed
+  };
+}
+
+async function fetchEventByCode(code){
+  if(!sb) return null;
+  const { data, error } = await sb.from('once_events').select('*').eq('code', code).maybeSingle();
+  if(error) throw error;
+  return data ? mapEvent(data) : null;
+}
+
+async function loadPhotos(){
+  if(!sb || !state.event || String(state.event.id).startsWith('local-')){
+    state.photos = lsGet(K.PH, []);
+    return;
+  }
+  sync('busy');
+  const { data, error } = await sb.from('once_photos')
+    .select('id,photo_data,taken_by,taken_at,emoji_reaction')
+    .eq('event_id', state.event.id)
+    .order('taken_at', { ascending:true });
+  if(error){ sync('off'); state.photos = lsGet(K.PH, []); return; }
+  state.photos = data || [];
+  cachePhotos();
+  sync('ok');
+}
+
+async function refreshEvent(){
+  if(!sb || !state.event || String(state.event.id).startsWith('local-')) return;
+  const { data } = await sb.from('once_events').select('*').eq('id', state.event.id).maybeSingle();
+  if(data){
+    state.event = mapEvent(data);
+    lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
+  }
+}
+
+function subscribe(){
+  if(!sb || !state.event || String(state.event.id).startsWith('local-')) return;
+  if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
+  channel = sb.channel('once-' + state.event.id)
+    .on('postgres_changes', {
+      event:'INSERT', schema:'public', table:'once_photos',
+      filter:'event_id=eq.' + state.event.id
+    }, payload => {
+      const p = payload.new;
+      if(!p || state.photos.some(x => x.id === p.id)) return; // anti-écho
+      state.photos.push({ id:p.id, photo_data:p.photo_data, taken_by:p.taken_by, taken_at:p.taken_at, emoji_reaction:p.emoji_reaction });
+      cachePhotos();
+      render();
+      sync('ok');
+    })
+    .subscribe(status => { if(status === 'SUBSCRIBED') online = true; });
+}
+
+/* ========================= RENDU ========================= */
+function render(){
+  const e = state.event;
+  if(!e) return;
+  const n = state.photos.length;
+  const people = Array.from(new Set(state.photos.map(p => p.taken_by).filter(Boolean)));
+
+  // header caméra
+  $('#cam-evname').textContent = e.eventName;
+  $('#cam-meta').textContent = (state.me ? state.me + ' · ' : '') + e.code + (state.isHost ? ' · organisateur' : '');
+  $('#cam-count').textContent = n === 0 ? '0 photo 📸' : plural(n, 'photo', 'photos') + ' 📸';
+
+  // état fermé
+  const closed = !!e.isClosed;
+  $('#btn-shoot').disabled = closed;
+  $('#btn-shoot').style.opacity = closed ? .4 : 1;
+  $('#cam-cap').textContent = closed ? "L'album est terminé 🎉" : 'Prends une photo';
+  $('#cam-sub').textContent = closed
+    ? 'Merci pour tes souvenirs. La galerie reste ouverte.'
+    : (isRevealLocked() ? 'Elle sera révélée à tout le monde à l\'heure prévue.' : "Elle rejoint l'album de toute la fête.");
+
+  // strip
+  const strip = $('#strip');
+  const last = state.photos.slice(-12).reverse();
+  if(isRevealLocked()){
+    strip.innerHTML = '<div class="empty">🌙 ' + plural(n,'photo cachée','photos cachées') + ' jusqu\'à la révélation.</div>';
+    $('#strip-more').textContent = '';
+  } else if(last.length === 0){
+    strip.innerHTML = '<div class="empty">Aucune photo pour l\'instant. Lance-toi !</div>';
+    $('#strip-more').textContent = '';
+  } else {
+    strip.innerHTML = last.map(p => {
+      const i = state.photos.findIndex(x => x.id === p.id);
+      return '<img src="'+p.photo_data+'" alt="Photo de '+esc(p.taken_by||'un invité')+'" data-i="'+i+'">';
+    }).join('');
+    $('#strip-more').textContent = n > 12 ? '+' + (n-12) : '';
+  }
+
+  // galerie
+  $('#gal-meta').textContent = n === 0
+    ? 'Rien encore'
+    : plural(n,'photo partagée','photos partagées') + ' par ' + plural(people.length || 1,'personne','personnes') + ' 💕';
+  const gb = $('#gal-body');
+  if(isRevealLocked()){
+    gb.innerHTML =
+      '<div class="reveal-wrap">'+
+        '<div class="reveal-lock">🌙</div>'+
+        '<h2 style="margin-top:16px">La pellicule se développe</h2>'+
+        '<p class="sub">'+ plural(n,'photo déjà prise','photos déjà prises') +'. Tout le monde les découvrira en même temps.</p>'+
+        '<div class="cd-row">'+
+          '<div class="cd-cell"><div class="n" id="cd-h">00</div><div class="l">heures</div></div>'+
+          '<div class="cd-cell"><div class="n" id="cd-m">00</div><div class="l">minutes</div></div>'+
+          '<div class="cd-cell"><div class="n" id="cd-s">00</div><div class="l">secondes</div></div>'+
+        '</div>'+
+      '</div>';
+    paintCountdown(); startCountdown();
+  } else if(n === 0){
+    gb.innerHTML = '<div class="empty-state"><div class="big">🖼️</div><div class="t">La galerie est vide</div><div class="d">Prends la première photo depuis l\'onglet Appareil.</div></div>';
+  } else {
+    gb.innerHTML = '<div class="grid">' + state.photos.slice().reverse().map(p => {
+      const i = state.photos.findIndex(x => x.id === p.id);
+      return '<div class="ph" data-i="'+i+'">'+
+        '<img src="'+p.photo_data+'" alt="Photo de '+esc(p.taken_by||'un invité')+'" loading="lazy">'+
+        '<div class="by"><span>'+esc(p.taken_by || 'Invité')+'</span><span class="rx">'+esc(p.emoji_reaction||'')+'</span></div>'+
+      '</div>';
+    }).join('') + '</div>';
+  }
+
+  // réglages
+  $('#set-meta').textContent = e.eventName;
+  $('#set-evname').textContent = e.eventName + (closed ? ' · terminé 🔒' : '');
+  $('#set-code').textContent = e.code;
+  $('#set-people').innerHTML = people.length
+    ? people.map(p => '<span>'+esc(p)+'</span>').join('')
+    : '<span>Personne encore</span>';
+  $('#set-host-card').classList.toggle('hidden', !state.isHost || closed);
+}
+
+/* ========================= ACTIONS ========================= */
+function enterEvent(ev, me, isHost){
+  state.event = ev; state.me = me || ''; state.isHost = !!isHost;
+  lsSet(K.EV, { event: ev, me: state.me, isHost: state.isHost });
+  goTab('camera');
+  loadPhotos().then(() => { render(); subscribe(); });
+}
+
+/* --- accueil --- */
+$$('[data-go]').forEach(b => b.addEventListener('click', ev => {
+  ev.preventDefault();
+  const t = b.dataset.go;
+  if(t === 'home') showHomeBlock('home');
+  if(t === 'create') showHomeBlock('create');
+  if(t === 'join') showHomeBlock('join');
+}));
+
+$('#link-local').addEventListener('click', ev => {
+  ev.preventDefault();
+  lsSet(K.SKIP, "1"); sb = null;
+  toast('Mode local activé — rien ne quitte ce téléphone.');
+  showHomeBlock('create');
+});
+
+$('#type-chips').addEventListener('click', ev => {
+  const c = ev.target.closest('.chip'); if(!c) return;
+  $$('#type-chips .chip').forEach(x => x.setAttribute('aria-pressed', String(x === c)));
+  state.type = c.dataset.type;
+});
+
+$('#reveal-chips').addEventListener('click', ev => {
+  const c = ev.target.closest('.chip'); if(!c) return;
+  $$('#reveal-chips .chip').forEach(x => x.setAttribute('aria-pressed', String(x === c)));
+  state.revealMode = c.dataset.reveal;
+  $('#reveal-when').classList.toggle('hidden', state.revealMode !== 'scheduled');
+  if(state.revealMode === 'scheduled' && !$('#in-revealat').value){
+    const d = new Date(Date.now() + 3*3600*1000);
+    d.setMinutes(0,0,0);
+    const p = n => String(n).padStart(2,'0');
+    $('#in-revealat').value = d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes());
+  }
+});
+
+$('#btn-create').addEventListener('click', async () => {
+  const eventName = $('#in-evname').value.trim();
+  const childName = $('#in-child').value.trim();
+  const hostName  = $('#in-host').value.trim();
+  if(!eventName){ toast('Donne un nom à la fête.'); $('#in-evname').focus(); return; }
+  if(!hostName){ toast('Ajoute ton prénom.'); $('#in-host').focus(); return; }
+  let revealAt = null;
+  if(state.revealMode === 'scheduled'){
+    const v = $('#in-revealat').value;
+    if(!v){ toast('Choisis l\'heure de la révélation.'); return; }
+    revealAt = new Date(v).toISOString();
+  }
+  const btn = $('#btn-create'); btn.disabled = true; btn.textContent = 'Création…'; sync('busy');
+  try{
+    const ev = await createEvent({
+      eventName, childName, hostName,
+      eventType: state.type,
+      revealMode: state.revealMode,
+      revealAt
+    });
+    state.event = ev; state.me = hostName; state.isHost = true;
+    lsSet(K.EV, { event: ev, me: hostName, isHost: true });
+    lsSet(K.PH, []);
+    $('#out-code').textContent = ev.code;
+    showHomeBlock('code');
+    burstConfetti();
+    sync(sb ? 'ok' : 'off');
+  }catch(err){
+    sync('off');
+    toast(explainError(err), 6000);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Créer l\'album 🎉';
+  }
+});
+
+$('#btn-share').addEventListener('click', async () => {
+  const ev = state.event; if(!ev) return;
+  const txt = ev.eventName + ' — rejoins l\'album photo avec le code ' + ev.code;
+  if(navigator.share){ try{ await navigator.share({ text: txt }); return; }catch(e){} }
+  try{ await navigator.clipboard.writeText(ev.code); toast('Code copié 📋'); }
+  catch(e){ toast('Code : ' + ev.code); }
+});
+
+$('#btn-enter-created').addEventListener('click', () => {
+  enterEvent(state.event, state.me, true);
+});
+
+$('#in-code').addEventListener('input', ev => {
+  ev.target.value = ev.target.value.toUpperCase().replace(/[^A-Z0-9-]/g,'');
+});
+
+$('#btn-lookup').addEventListener('click', async () => {
+  let code = $('#in-code').value.trim().toUpperCase();
+  if(code && !code.startsWith('FETE-')) code = 'FETE-' + code.replace(/^FETE/,'');
+  if(!/^FETE-[A-Z0-9]{4}$/.test(code)){ toast('Le code ressemble à FETE-AB2K.'); return; }
+  if(!sb){ toast('Mode local : impossible de rejoindre une fête.'); return; }
+  const btn = $('#btn-lookup'); btn.disabled = true; btn.textContent = 'Recherche…'; sync('busy');
+  try{
+    const ev = await fetchEventByCode(code);
+    if(!ev){ sync('ok'); toast('Aucune fête avec ce code.'); return; }
+    state.event = ev;
+    $('#join-title').textContent = '🎉 Tu rejoins : ' + ev.eventName;
+    $('#join-found').classList.remove('hidden');
+    $('#in-photog').focus();
+    sync('ok');
+  }catch(e){
+    sync('off'); toast('Recherche impossible. Vérifie ta connexion.');
+  }finally{
+    btn.disabled = false; btn.textContent = 'Chercher la fête 🔎';
+  }
+});
+
+$('#btn-join').addEventListener('click', () => {
+  const me = $('#in-photog').value.trim();
+  if(!me){ toast('Ajoute ton prénom.'); $('#in-photog').focus(); return; }
+  if(!state.event){ toast('Cherche d\'abord la fête.'); return; }
+  lsSet(K.PH, []);
+  enterEvent(state.event, me, false);
+  burstConfetti();
+});
+
+/* --- onglets --- */
+$('#tabbar').addEventListener('click', ev => {
+  const b = ev.target.closest('button[data-tab]'); if(!b) return;
+  goTab(b.dataset.tab);
+});
+
+/* --- prise de photo --- */
+$('#btn-shoot').addEventListener('click', () => {
+  if(state.event && state.event.isClosed){ toast('L\'album est terminé 🎉'); return; }
+  $('#file-in').value = '';
+  $('#file-in').click();
+});
+
+$('#file-in').addEventListener('change', async ev => {
+  const f = ev.target.files && ev.target.files[0];
+  if(!f) return;
+  sync('busy');
+  try{
+    const dataUrl = await compress(f);
+    state.pending = dataUrl; state.rx = '';
+    $('#prev-img').src = dataUrl;
+    $$('#rx-row .rx-btn').forEach(b => b.setAttribute('aria-pressed','false'));
+    $('#prev-name-wrap').classList.toggle('hidden', !!state.me);
+    $('#in-prevname').value = state.me || '';
+    $('#preview').classList.remove('hidden');
+    sync('ok');
+  }catch(e){
+    sync('off'); toast('Photo illisible. Réessaie.');
+  }
+});
+
+$('#rx-row').addEventListener('click', ev => {
+  const b = ev.target.closest('.rx-btn'); if(!b) return;
+  const already = b.getAttribute('aria-pressed') === 'true';
+  $$('#rx-row .rx-btn').forEach(x => x.setAttribute('aria-pressed','false'));
+  if(!already){ b.setAttribute('aria-pressed','true'); state.rx = b.dataset.rx; }
+  else state.rx = '';
+});
+
+function closePreview(){ $('#preview').classList.add('hidden'); state.pending = null; }
+$('#btn-retake').addEventListener('click', () => { closePreview(); $('#file-in').value=''; $('#file-in').click(); });
+$('#prev-close').addEventListener('click', closePreview);
+
+$('#btn-send').addEventListener('click', async () => {
+  if(!state.pending) return;
+  const name = $('#in-prevname').value.trim() || state.me;
+  if(!name){ toast('Ajoute ton prénom.'); $('#in-prevname').focus(); return; }
+  if(name !== state.me){
+    state.me = name;
+    lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
+  }
+  const btn = $('#btn-send'); btn.disabled = true; btn.textContent = 'Envoi…'; sync('busy');
+
+  const local = {
+    id: 'tmp-' + Date.now(),
+    photo_data: state.pending,
+    taken_by: name,
+    taken_at: new Date().toISOString(),
+    emoji_reaction: state.rx || null
+  };
+
+  const remote = sb && state.event && !String(state.event.id).startsWith('local-');
+  if(remote){
+    const { data, error } = await sb.from('once_photos').insert({
+      event_id: state.event.id,
+      photo_data: state.pending,
+      taken_by: name,
+      emoji_reaction: state.rx || null
+    }).select('id,photo_data,taken_by,taken_at,emoji_reaction').single();
+    if(error){ sync('off'); toast('Envoi impossible. Photo gardée sur ce téléphone.'); state.photos.push(local); }
+    else if(!state.photos.some(x => x.id === data.id)){ state.photos.push(data); sync('ok'); }
+    else sync('ok');
+  } else {
+    state.photos.push(local); sync('off');
+  }
+
+  cachePhotos();
+  closePreview();
+  render();
+  burstConfetti();
+  btn.disabled = false; btn.textContent = 'Envoyer 🚀';
+});
+
+/* --- lightbox --- */
+function openLightbox(i){
+  if(isRevealLocked()) return;
+  state.lbIndex = i;
+  paintLightbox();
+  $('#lightbox').classList.remove('hidden');
+}
+function paintLightbox(){
+  const p = state.photos[state.lbIndex]; if(!p) return;
+  $('#lb-img').src = p.photo_data;
+  const d = new Date(p.taken_at);
+  const hh = String(d.getHours()).padStart(2,'0') + 'h' + String(d.getMinutes()).padStart(2,'0');
+  $('#lb-cap').innerHTML = esc(p.taken_by || 'Invité') + ' ' + esc(p.emoji_reaction || '') + '<span>' + hh + '</span>';
+  $('#lb-pos').textContent = (state.lbIndex + 1) + ' / ' + state.photos.length;
+  $('#lb-prev').disabled = state.lbIndex <= 0;
+  $('#lb-next').disabled = state.lbIndex >= state.photos.length - 1;
+}
+$('#lb-close').addEventListener('click', () => $('#lightbox').classList.add('hidden'));
+$('#lb-prev').addEventListener('click', () => { if(state.lbIndex > 0){ state.lbIndex--; paintLightbox(); } });
+$('#lb-next').addEventListener('click', () => { if(state.lbIndex < state.photos.length-1){ state.lbIndex++; paintLightbox(); } });
+
+let tx = 0;
+$('#lightbox').addEventListener('touchstart', e => { tx = e.changedTouches[0].clientX; }, {passive:true});
+$('#lightbox').addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - tx;
+  if(Math.abs(dx) < 45) return;
+  if(dx < 0 && state.lbIndex < state.photos.length-1){ state.lbIndex++; paintLightbox(); }
+  if(dx > 0 && state.lbIndex > 0){ state.lbIndex--; paintLightbox(); }
+}, {passive:true});
+
+$('#strip').addEventListener('click', ev => {
+  const img = ev.target.closest('img[data-i]'); if(!img) return;
+  openLightbox(parseInt(img.dataset.i, 10));
+});
+$('#gal-body').addEventListener('click', ev => {
+  const ph = ev.target.closest('.ph[data-i]'); if(!ph) return;
+  openLightbox(parseInt(ph.dataset.i, 10));
+});
+
+/* --- réglages --- */
+$('#btn-copy-code').addEventListener('click', async () => {
+  if(!state.event) return;
+  try{ await navigator.clipboard.writeText(state.event.code); toast('Code copié 📋'); }
+  catch(e){ toast('Code : ' + state.event.code); }
+});
+
+$('#btn-close-album').addEventListener('click', async () => {
+  if(!state.event) return;
+  if(!confirm('Fermer l\'album ? Plus personne ne pourra ajouter de photos.')) return;
+  sync('busy');
+  if(sb && !String(state.event.id).startsWith('local-')){
+    const { error } = await sb.from('once_events').update({ is_closed:true }).eq('id', state.event.id);
+    if(error){ sync('off'); toast('Fermeture impossible. Réessaie.'); return; }
+  }
+  state.event.isClosed = true;
+  lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
+  sync('ok'); render();
+  toast('Album fermé 🔒 La galerie reste ouverte.');
+});
+
+$('#btn-leave').addEventListener('click', () => {
+  if(!confirm('Quitter cet événement ? Tu pourras y revenir avec le code.')) return;
+  if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
+  clearInterval(cdTimer);
+  lsDel(K.EV); lsDel(K.PH);
+  state.event = null; state.me = ''; state.isHost = false; state.photos = [];
+  goHome();
+});
+
+/* ========================= DÉMARRAGE ========================= */
+// Vérifie au lancement que les tables existent et sont accessibles
+async function probe(){
+  if(!sb) return;
+  try{
+    const { error } = await sb.from('once_events').select('id').limit(1);
+    if(error){ sync('off'); toast(explainError(error), 7000); return; }
+    const p = await sb.from('once_photos').select('id').limit(1);
+    if(p.error){ sync('off'); toast(explainError(p.error), 7000); return; }
+    console.log('[Petite Fête] Supabase OK — tables accessibles.');
+  }catch(e){ sync('off'); toast(explainError(e), 7000); }
+}
+
+async function boot(){
+  const ok = initSupabase();
+  if(!ok) sync('off');
+  probe();
+
+  const saved = lsGet(K.EV, null);
+  if(saved && saved.event && saved.event.id){
+    state.event = saved.event; state.me = saved.me || ''; state.isHost = !!saved.isHost;
+    state.photos = lsGet(K.PH, []);
+    goTab('camera');
+    render();
+    await refreshEvent();
+    await loadPhotos();
+    render();
+    subscribe();
+    if(isRevealLocked() && state.tab === 'gallery') startCountdown();
+  } else {
+    goHome();
+  }
+
+  // recharge à la reprise d'onglet
+  document.addEventListener('visibilitychange', async () => {
+    if(document.visibilityState === 'visible' && state.event){
+      await refreshEvent(); await loadPhotos(); render();
+    }
+  });
+}
+
+boot();
+})();
+</script>
+</body>
+</html>
