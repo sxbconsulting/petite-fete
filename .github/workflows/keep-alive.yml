@@ -1,0 +1,43 @@
+name: Keep Supabase alive
+
+# Le plan gratuit met le projet en pause après 7 jours sans requête.
+# Ce workflow envoie une vraie requête REST 3 fois par semaine.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1,3,5"   # lundi, mercredi, vendredi à 6h UTC
+  workflow_dispatch:           # bouton "Run workflow" pour tester à la main
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST
+        env:
+          URL: ${{ secrets.SUPABASE_URL }}
+          KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$KEY" ]; then
+            echo "::error::Secrets SUPABASE_URL ou SUPABASE_ANON_KEY absents."
+            echo "Settings > Secrets and variables > Actions > New repository secret"
+            exit 1
+          fi
+
+          # on retire un éventuel slash final
+          BASE="${URL%/}"
+
+          CODE=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
+            "$BASE/rest/v1/once_events?select=id&limit=1" \
+            -H "apikey: $KEY" \
+            -H "Authorization: Bearer $KEY")
+
+          echo "HTTP $CODE"
+          head -c 400 /tmp/out.txt; echo
+
+          case "$CODE" in
+            200) echo "✅ Projet actif, ping enregistré." ;;
+            401|403) echo "::error::Clé anon invalide. Vérifie le secret SUPABASE_ANON_KEY."; exit 1 ;;
+            404) echo "::error::Table once_events introuvable, ou URL incorrecte."; exit 1 ;;
+            000) echo "::error::Injoignable — projet en pause ? Restaure-le à la main une fois."; exit 1 ;;
+            *)   echo "::error::Réponse inattendue ($CODE)."; exit 1 ;;
+          esac
