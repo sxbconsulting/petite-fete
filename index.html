@@ -25,7 +25,7 @@ create table if not exists once_events (
 create table if not exists once_photos (
   id uuid primary key default gen_random_uuid(),
   event_id uuid references once_events(id) on delete cascade,
-  photo_data text not null,            -- base64 JPEG compressé
+  photo_data text,                     -- LEGACY v1 : base64 (conservé pour les anciennes photos)
   taken_by text,                       -- prénom du photographe
   taken_at timestamptz default now(),
   emoji_reaction text                  -- réaction optionnelle
@@ -37,8 +37,39 @@ alter table once_photos enable row level security;
 create policy "allow all once_events" on once_events for all using (true) with check (true);
 create policy "allow all once_photos" on once_photos for all using (true) with check (true);
 
--- Realtime (Database > Replication > cocher once_photos, ou :)
+-- Realtime (Database > Publications > cocher once_photos, ou :)
 alter publication supabase_realtime add table once_photos;
+
+-- =====================================================================
+-- MIGRATION V2 — HAUTE RÉSOLUTION + VIDÉO (à exécuter même si v1 déjà fait)
+-- =====================================================================
+
+-- 1) Nouvelles colonnes
+alter table once_photos add column if not exists media_type   text default 'photo';  -- photo | video
+alter table once_photos add column if not exists storage_path text;    -- chemin dans le bucket
+alter table once_photos add column if not exists media_url    text;    -- URL publique
+alter table once_photos add column if not exists thumb_data   text;    -- miniature base64 (~400px)
+alter table once_photos add column if not exists width        int;
+alter table once_photos add column if not exists height       int;
+alter table once_photos add column if not exists duration_s   numeric; -- vidéos
+alter table once_photos alter column photo_data drop not null;
+
+-- 2) Bucket de stockage
+insert into storage.buckets (id, name, public, file_size_limit)
+values ('fete-media', 'fete-media', true, 104857600)   -- 100 Mo max par fichier
+on conflict (id) do update set public = true, file_size_limit = 104857600;
+
+-- 3) Policies Storage permissives
+drop policy if exists "fete read"   on storage.objects;
+drop policy if exists "fete write"  on storage.objects;
+drop policy if exists "fete delete" on storage.objects;
+
+create policy "fete read"   on storage.objects for select
+  using (bucket_id = 'fete-media');
+create policy "fete write"  on storage.objects for insert
+  with check (bucket_id = 'fete-media');
+create policy "fete delete" on storage.objects for delete
+  using (bucket_id = 'fete-media');
 
 ================================================================================
 -->
@@ -353,6 +384,171 @@ body[data-sky="night"] .note{color:#cfc4ee}
 .divider{height:1px;background:#efeaf7;margin:18px 0}
 body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 
+/* ---------- MODE D'EMPLOI ---------- */
+.ht-slide{width:100%;max-width:420px;animation:slideIn .45s var(--bounce) both}
+.ht-scene{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:20px 0 4px}
+.ht-p{
+  display:flex;align-items:center;gap:9px;background:rgba(255,255,255,.1);
+  border-radius:18px;padding:11px 12px;
+}
+.ht-av{font-size:24px}
+.ht-n{flex:1;color:#fff;font-size:14px;font-weight:600}
+.ht-c{
+  font-family:'Nunito',sans-serif;font-weight:800;font-size:11px;
+  color:#c9bde9;white-space:nowrap;
+}
+.ht-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:20px 0 4px;
+}
+.ht-grid span{
+  aspect-ratio:1;background:rgba(255,255,255,.12);border-radius:16px;
+  display:grid;place-items:center;font-size:28px;
+  animation:pop .5s var(--bounce) both;
+}
+.ht-grid span:nth-child(2){animation-delay:.07s}
+.ht-grid span:nth-child(3){animation-delay:.14s}
+.ht-grid span:nth-child(4){animation-delay:.21s}
+.ht-grid span:nth-child(5){animation-delay:.28s}
+.ht-grid span:nth-child(6){animation-delay:.35s}
+.ht-txt{color:#e4dcff;font-size:15px;line-height:1.55;margin-top:16px}
+.ht-hint{
+  color:#fff;font-size:13.5px;line-height:1.5;margin-top:14px;
+  background:rgba(255,184,48,.16);border-left:4px solid var(--gold);
+  border-radius:14px;padding:12px 14px;
+}
+.ht-hint b{letter-spacing:1.5px}
+#howto .dots .dot{border-color:#c9bde9}
+#howto .dots .dot.on{background:#fff;border-color:#fff}
+
+/* ---------- SESSIONS ---------- */
+.sess{
+  display:flex;align-items:center;gap:12px;width:100%;text-align:left;
+  background:#fff;border:2px solid transparent;border-radius:20px;
+  padding:13px 15px;box-shadow:var(--sh);margin-top:9px;
+  transition:transform .28s var(--bounce),border-color .2s;
+}
+.sess[aria-current="true"]{border-color:var(--ink)}
+.sess:active{transform:scale(.96)}
+.sess .se{font-size:24px;line-height:1}
+.sess .sx{flex:1;min-width:0}
+.sess .sn{font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess .sc{
+  font-family:'Nunito',sans-serif;font-weight:800;font-size:10.5px;letter-spacing:1px;
+  color:var(--ink-soft);margin-top:2px;text-transform:uppercase;
+}
+.sess .sk{
+  flex:0 0 auto;font-family:'Nunito',sans-serif;font-weight:800;font-size:10px;
+  letter-spacing:.8px;text-transform:uppercase;color:var(--ink-soft);
+  border:2px solid var(--ink-soft);border-radius:999px;padding:3px 8px;
+}
+.sess[aria-current="true"] .sk{background:var(--ink);border-color:var(--ink);color:#fff}
+
+/* ---------- FORMAT & CAPTURE ---------- */
+.ratio-row{display:flex;gap:8px;justify-content:center;padding:4px 0 2px;flex-wrap:wrap}
+.rt{
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  background:#fff;border:2px solid transparent;border-radius:16px;
+  padding:9px 12px;box-shadow:var(--sh);
+  font-family:'Nunito',sans-serif;font-weight:800;font-size:10.5px;
+  letter-spacing:.6px;text-transform:uppercase;color:var(--ink-soft);
+  transition:transform .28s var(--bounce),border-color .2s,color .2s;
+}
+.rt[aria-pressed="true"]{border-color:var(--ink);color:var(--ink)}
+.rt:active{transform:scale(.92)}
+.rb{display:block;border:2px solid currentColor;border-radius:4px}
+.rb-free{width:22px;height:16px;border-style:dashed}
+.rb-sq{width:17px;height:17px}
+.rb-43{width:22px;height:16px}
+.rb-916{width:12px;height:20px}
+
+.shoot-row{display:flex;align-items:center;justify-content:center;gap:22px}
+.cam-side{
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  width:62px;height:62px;border-radius:50%;background:#fff;
+  box-shadow:var(--sh);font-size:22px;justify-content:center;
+  transition:transform .28s var(--bounce);
+}
+.cam-side span{
+  font-family:'Nunito',sans-serif;font-weight:800;font-size:8.5px;
+  letter-spacing:.5px;text-transform:uppercase;color:var(--ink-soft);
+}
+.cam-side:active{transform:scale(.9)}
+
+.badge-v{
+  position:absolute;top:8px;left:8px;background:rgba(36,27,71,.82);color:#fff;
+  border-radius:999px;padding:3px 9px;font-size:11px;font-weight:600;
+  display:flex;align-items:center;gap:4px;z-index:2;
+}
+.strip .wrap-s{position:relative;flex:0 0 auto}
+.strip .wrap-s .badge-v{top:6px;left:6px;padding:2px 7px;font-size:10px}
+#lb-video{max-width:100%;max-height:70vh;border-radius:20px;box-shadow:0 20px 50px rgba(0,0,0,.5);background:#000}
+.up-bar{
+  width:100%;height:6px;border-radius:999px;background:rgba(255,255,255,.18);
+  overflow:hidden;margin-top:12px;
+}
+.up-bar i{display:block;height:100%;width:0;background:var(--mint);transition:width .3s ease}
+.size-hint{font-size:12.5px;color:#c9bde9;text-align:center;margin-top:8px}
+.ov video.shot{max-width:100%;max-height:46vh;border-radius:22px;background:#000;border:4px solid #fff}
+
+/* ---------- INTRO ---------- */
+#view-intro{display:flex;flex-direction:column}
+.intro-track{flex:1;display:flex;flex-direction:column;justify-content:center;min-height:0}
+.intro-slide{animation:slideIn .5s var(--bounce) both}
+@keyframes slideIn{0%{opacity:0;transform:translateX(24px)}100%{opacity:1;transform:none}}
+.intro-slide h1{margin-top:8px}
+.intro-slide .sub{font-size:15.5px;line-height:1.55}
+.intro-quote{
+  margin:18px 0 0;padding:14px 16px;background:#fff;border-radius:20px;
+  box-shadow:var(--sh);font-size:14.5px;font-weight:500;line-height:1.5;
+  border-left:4px solid var(--gold);
+}
+.intro-art{
+  position:relative;height:150px;margin:6px 0 22px;
+  display:grid;place-items:center;
+}
+.ph-card{
+  position:absolute;width:56px;height:74px;border-radius:14px;background:#fff;
+  box-shadow:var(--sh);display:grid;place-items:center;font-size:24px;
+}
+.ph-card.c1{transform:translate(-72px,6px) rotate(-14deg)}
+.ph-card.c2{transform:translate(0,-8px) rotate(4deg)}
+.ph-card.c3{transform:translate(72px,10px) rotate(15deg)}
+.intro-q{
+  position:absolute;bottom:-4px;font-size:34px;font-weight:700;color:var(--ink-soft);
+  animation:qbob 2.4s ease-in-out infinite;
+}
+@keyframes qbob{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+.intro-hub{
+  width:86px;height:86px;border-radius:50%;background:#fff;box-shadow:var(--sh-lift);
+  display:grid;place-items:center;font-size:38px;z-index:2;
+}
+.intro-orbit{
+  position:absolute;width:44px;height:44px;border-radius:50%;background:#fff;
+  box-shadow:var(--sh);display:grid;place-items:center;font-size:20px;
+  animation:obob 3s ease-in-out infinite;
+}
+.intro-orbit.o1{transform:translate(-82px,-34px);animation-delay:0s}
+.intro-orbit.o2{transform:translate(84px,-30px);animation-delay:.4s}
+.intro-orbit.o3{transform:translate(-6px,52px);animation-delay:.8s}
+@keyframes obob{0%,100%{margin-top:0}50%{margin-top:-9px}}
+.intro-steps{margin-top:6px}
+.istep{
+  display:flex;gap:12px;align-items:flex-start;background:#fff;border-radius:20px;
+  padding:14px 16px;box-shadow:var(--sh);margin-top:10px;
+}
+.istep .in{
+  flex:0 0 26px;height:26px;border-radius:50%;background:var(--gold);color:#4a3410;
+  display:grid;place-items:center;font-family:'Nunito',sans-serif;font-weight:800;font-size:13px;
+}
+.istep .it{font-size:14.5px;line-height:1.45;font-weight:500}
+.intro-foot{padding:8px 0 calc(10px + env(safe-area-inset-bottom))}
+.dots{display:flex;justify-content:center;gap:8px;padding:6px 0 4px}
+.dot{
+  width:8px;height:8px;border-radius:50%;background:transparent;
+  border:2px solid var(--ink-soft);opacity:.45;transition:.3s var(--bounce);
+}
+.dot.on{background:var(--ink);border-color:var(--ink);opacity:1;transform:scale(1.25)}
+
 @media (prefers-reduced-motion:reduce){
   *,*::after,*::before{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
 }
@@ -365,6 +561,67 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 
 <div id="app">
 
+  <!-- ======================= VUE INTRO (premier lancement) ======================= -->
+  <section id="view-intro" class="screen pad-top hidden">
+    <div class="intro-track">
+
+      <!-- volet 1 : le problème -->
+      <div class="intro-slide" data-slide="0">
+        <div class="intro-art">
+          <span class="ph-card c1">📱</span>
+          <span class="ph-card c2">📱</span>
+          <span class="ph-card c3">📱</span>
+          <span class="intro-q">?</span>
+        </div>
+        <p class="eyebrow">Ça vous dit quelque chose ?</p>
+        <h1>Les photos finissent<br>éparpillées</h1>
+        <p class="sub">Un après-midi avec les copains et les enfants. Sept adultes, sept téléphones. Et le soir, personne n'a les photos.</p>
+        <p class="intro-quote">« Tu me les envoies ? » — Oui, oui. Puis on oublie.</p>
+      </div>
+
+      <!-- volet 2 : la solution -->
+      <div class="intro-slide hidden" data-slide="1">
+        <div class="intro-art">
+          <span class="intro-hub">📸</span>
+          <span class="intro-orbit o1">🎈</span>
+          <span class="intro-orbit o2">🎂</span>
+          <span class="intro-orbit o3">✨</span>
+        </div>
+        <p class="eyebrow">Comment ça marche</p>
+        <h1>Un seul album,<br>pour tout le monde</h1>
+        <div class="intro-steps">
+          <div class="istep"><span class="in">1</span><span class="it">Tu crées la fête et tu obtiens un code à partager.</span></div>
+          <div class="istep"><span class="in">2</span><span class="it">Chaque invité entre le code. Aucune appli à installer.</span></div>
+          <div class="istep"><span class="in">3</span><span class="it">Les photos arrivent au même endroit, en direct.</span></div>
+        </div>
+      </div>
+
+      <!-- volet 3 : l'origine -->
+      <div class="intro-slide hidden" data-slide="2">
+        <div class="intro-art">
+          <span class="intro-hub">💛</span>
+          <span class="intro-orbit o1">🧒</span>
+          <span class="intro-orbit o2">👧</span>
+          <span class="intro-orbit o3">🧑</span>
+        </div>
+        <p class="eyebrow">Pourquoi cette app existe</p>
+        <h1>Née d'un vrai<br>agacement</h1>
+        <p class="sub">Avec ma femme, on organise souvent des après-midi avec nos amis et nos enfants. À chaque fois, la même galère : récupérer les photos des uns et des autres.</p>
+        <p class="sub" style="margin-top:12px">Des messages dispersés, des albums partagés que personne n'ouvre, des souvenirs qui restent bloqués dans un téléphone.</p>
+        <p class="intro-quote">Alors on a fait l'outil qui nous manquait.</p>
+      </div>
+
+    </div>
+
+    <div class="intro-foot">
+      <div class="dots" id="intro-dots">
+        <span class="dot on"></span><span class="dot"></span><span class="dot"></span>
+      </div>
+      <button class="btn gold" id="btn-intro-next">Continuer</button>
+      <button class="btn ghost" id="btn-intro-skip">Passer</button>
+    </div>
+  </section>
+
   <!-- ======================= VUE ACCUEIL ======================= -->
   <section id="view-home" class="screen pad-top">
     <div style="padding-top:26px">
@@ -372,6 +629,8 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
       <h1>📸 Nos souvenirs ✨</h1>
       <p class="sub">Chaque invité prend des photos avec son téléphone. Tout le monde les retrouve au même endroit.</p>
     </div>
+
+    <div id="home-sessions" class="hidden" style="margin-top:22px"></div>
 
     <div id="home-choices" style="margin-top:26px">
       <button class="choice" data-go="create">
@@ -465,18 +724,29 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
     </header>
 
     <div class="screen" style="padding-top:0;display:flex;flex-direction:column">
+      <div class="ratio-row" id="ratio-row">
+        <button class="rt" data-ratio="free" aria-pressed="true"><span class="rb rb-free"></span>Original</button>
+        <button class="rt" data-ratio="1:1" aria-pressed="false"><span class="rb rb-sq"></span>Carré</button>
+        <button class="rt" data-ratio="4:3" aria-pressed="false"><span class="rb rb-43"></span>4:3</button>
+        <button class="rt" data-ratio="9:16" aria-pressed="false"><span class="rb rb-916"></span>Portrait</button>
+      </div>
+
       <div class="cam-wrap">
-        <button class="cam-btn" id="btn-shoot" aria-label="Prendre une photo">📷</button>
+        <div class="shoot-row">
+          <button class="cam-side" id="btn-video" aria-label="Filmer une vidéo">🎥<span>Vidéo</span></button>
+          <button class="cam-btn" id="btn-shoot" aria-label="Prendre une photo">📷</button>
+          <button class="cam-side" id="btn-import" aria-label="Importer depuis la galerie">🖼️<span>Importer</span></button>
+        </div>
         <div class="cam-cap" id="cam-cap">Prends une photo</div>
         <div class="cam-sub" id="cam-sub">Elle rejoint l'album de toute la fête.</div>
       </div>
 
       <div>
         <div class="strip-lb">
-          <span class="eyebrow">Dernières photos</span>
+          <span class="eyebrow">Derniers souvenirs</span>
           <span class="eyebrow" id="strip-more"></span>
         </div>
-        <div class="strip" id="strip"><div class="empty">Aucune photo pour l'instant. Lance-toi !</div></div>
+        <div class="strip" id="strip"><div class="empty">Rien pour l'instant. Lance-toi !</div></div>
       </div>
     </div>
   </section>
@@ -513,6 +783,22 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
         <button class="btn ghost" id="btn-copy-code" style="text-align:center">Copier le code 📋</button>
       </div>
 
+      <div class="card" id="set-sess-card">
+        <p class="eyebrow">Mes albums</p>
+        <div id="set-sessions"></div>
+        <button class="btn ghost" id="btn-add-album">+ Rejoindre un autre album</button>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow">Qualité des photos</p>
+        <div class="chips" id="qual-row" style="margin-top:8px">
+          <button class="chip" data-q="hd" aria-pressed="false">Bonne · 1600px</button>
+          <button class="chip" data-q="max" aria-pressed="true">Haute · 2560px</button>
+          <button class="chip" data-q="ultra" aria-pressed="false">Maximale · 4K</button>
+        </div>
+        <p class="note">Plus la qualité est haute, plus l'envoi est long. Les vidéos sont toujours envoyées telles quelles.</p>
+      </div>
+
       <div class="card">
         <p class="eyebrow">Les photographes</p>
         <div class="people" id="set-people"><span>Personne encore</span></div>
@@ -524,6 +810,8 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
         <button class="btn danger" id="btn-close-album">Fermer l'album 🔒</button>
       </div>
 
+      <button class="btn ghost" id="btn-howto">Comment ça marche 📸</button>
+      <button class="btn ghost" id="btn-show-intro">Pourquoi cette app existe 💛</button>
       <button class="btn ghost" id="btn-leave">Quitter cet événement</button>
       <p class="note" style="text-align:center;padding-bottom:20px">Petite Fête · album partagé</p>
     </div>
@@ -537,13 +825,51 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 </div>
 
 <input type="file" id="file-in" accept="image/*" capture="environment" style="position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px" aria-hidden="true" tabindex="-1">
+<input type="file" id="file-vid" accept="video/*" capture="environment" style="position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px" aria-hidden="true" tabindex="-1">
+<input type="file" id="file-lib" accept="image/*,video/*" multiple style="position:fixed;left:-9999px;top:0;opacity:0;width:1px;height:1px" aria-hidden="true" tabindex="-1">
 <div class="toast" id="toast"></div>
+
+<!-- overlay mode d'emploi (2 slides) -->
+<div class="ov hidden" id="howto" style="background:rgba(36,27,71,.96)">
+  <button class="ov-close" id="ht-close" aria-label="Fermer">✕</button>
+  <div class="ov-body" style="justify-content:flex-start;padding-top:14vh">
+
+    <div class="ht-slide" data-ht="0">
+      <p class="eyebrow" style="color:#b7a9e2">Un exemple · Samedi, 15h</p>
+      <h1 style="color:#fff;font-size:27px;margin-top:6px">Chacun prend<br>2 ou 3 photos</h1>
+      <div class="ht-scene">
+        <div class="ht-p"><span class="ht-av">🧔</span><span class="ht-n">Billal</span><span class="ht-c">3 📸</span></div>
+        <div class="ht-p"><span class="ht-av">👩</span><span class="ht-n">Sarah</span><span class="ht-c">2 📸</span></div>
+        <div class="ht-p"><span class="ht-av">🧑</span><span class="ht-n">Karim</span><span class="ht-c">4 📸</span></div>
+        <div class="ht-p"><span class="ht-av">👵</span><span class="ht-n">Mamie</span><span class="ht-c">1 🎥</span></div>
+      </div>
+      <p class="ht-txt">Personne ne fait le paparazzi. Chacun sort son téléphone deux minutes, puis le range et profite de l'après-midi.</p>
+    </div>
+
+    <div class="ht-slide hidden" data-ht="1">
+      <p class="eyebrow" style="color:#b7a9e2">Le soir même · 21h</p>
+      <h1 style="color:#fff;font-size:27px;margin-top:6px">Tout le monde a<br>les 10 photos</h1>
+      <div class="ht-grid">
+        <span>🎂</span><span>🎈</span><span>😂</span>
+        <span>🧒</span><span>🎁</span><span>🎥</span>
+      </div>
+      <p class="ht-txt">Pas de « tu me les envoies ? ». L'album est déjà complet, et chacun y retrouve les moments qu'il a ratés.</p>
+      <p class="ht-hint">💡 Le code <b id="ht-code">FETE-····</b> se partage par SMS. Aucune appli à installer pour tes invités.</p>
+    </div>
+
+    <div class="ov-panel" style="max-width:420px">
+      <div class="dots" id="ht-dots"><span class="dot on"></span><span class="dot"></span></div>
+      <button class="btn gold" id="ht-next">Continuer</button>
+    </div>
+  </div>
+</div>
 
 <!-- overlay preview -->
 <div class="ov hidden" id="preview">
   <button class="ov-close" id="prev-close" aria-label="Fermer">✕</button>
   <div class="ov-body">
     <img class="shot" id="prev-img" alt="Photo qui vient d'être prise">
+    <video class="shot hidden" id="prev-vid" controls playsinline muted></video>
     <div class="ov-panel">
       <div id="prev-name-wrap">
         <label class="fl-lb" for="in-prevname">Ton prénom</label>
@@ -557,6 +883,8 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
         <button class="rx-btn" data-rx="🌟" aria-pressed="false">🌟</button>
         <button class="rx-btn" data-rx="🎊" aria-pressed="false">🎊</button>
       </div>
+      <div class="size-hint" id="prev-size"></div>
+      <div class="up-bar hidden" id="up-bar"><i id="up-fill"></i></div>
       <div class="ov-actions">
         <button class="btn ghost" id="btn-retake" style="flex:1;color:#c9bde9">Reprendre</button>
         <button class="btn mint" id="btn-send" style="flex:2">Envoyer 🚀</button>
@@ -570,6 +898,7 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
   <button class="ov-close" id="lb-close" aria-label="Fermer">✕</button>
   <div class="ov-body">
     <img class="lb-img" id="lb-img" alt="Photo de la fête">
+    <video id="lb-video" class="hidden" controls playsinline preload="metadata"></video>
     <div class="lb-cap" id="lb-cap"></div>
     <div class="lb-nav">
       <button id="lb-prev" aria-label="Photo précédente">‹</button>
@@ -587,7 +916,11 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
 
-const K = { EV:'once_current_event', PH:'once_photos_cache', SKIP:'once_skip_sync' };
+const K = { EV:'once_current_event', SESS:'once_sessions', SKIP:'once_skip_sync', SEEN:'once_intro_seen',
+            HOWTO:'once_howto_seen', RATIO:'once_ratio', QUAL:'once_quality' };
+// Cache photo namespacé par événement — sinon fuite de données entre albums
+const phKey = id => 'once_photos:' + id;
+const COLS = 'id,photo_data,media_type,media_url,storage_path,thumb_data,width,height,duration_s,taken_by,taken_at,emoji_reaction';
 const $ = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
@@ -603,7 +936,9 @@ let state = {
   rx: '',
   lbIndex: 0,
   type: 'birthday',
-  revealMode: 'immediate'
+  revealMode: 'immediate',
+  ratio: 'free',        // free | 1:1 | 4:3 | 9:16
+  quality: 'max'        // hd 1600 | max 2560 | ultra 3840
 };
 
 /* ========================= STOCKAGE ========================= */
@@ -611,10 +946,37 @@ function lsGet(k, fb){ try{ const v = localStorage.getItem(k); return v ? JSON.p
 function lsSet(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } }
 function lsDel(k){ try{ localStorage.removeItem(k); }catch(e){} }
 
+/* ---------- SESSIONS MULTIPLES ---------- */
+function getSessions(){ return lsGet(K.SESS, []) || []; }
+
+function saveSession(ev, me, isHost){
+  const list = getSessions().filter(x => x.event && x.event.id !== ev.id);
+  list.unshift({ event: ev, me, isHost, lastSeen: Date.now() });
+  lsSet(K.SESS, list.slice(0, 12));
+}
+
+function dropSession(id){
+  lsSet(K.SESS, getSessions().filter(x => x.event && x.event.id !== id));
+  lsDel(phKey(id));
+}
+
+function touchSession(){
+  if(!state.event) return;
+  saveSession(state.event, state.me, state.isHost);
+  touchSession();
+}
+
 function cachePhotos(){
-  // on garde les 30 dernières pour ne pas exploser le quota
-  const slice = state.photos.slice(-30);
-  if(!lsSet(K.PH, slice)) lsSet(K.PH, state.photos.slice(-10));
+  // on ne met jamais la pleine résolution en cache : miniatures + URL seulement
+  const slim = state.photos.slice(-60).map(p => ({
+    id:p.id, media_type:p.media_type, media_url:p.media_url, thumb_data:p.thumb_data,
+    photo_data: p.media_url ? null : p.photo_data,   // legacy v1 uniquement
+    width:p.width, height:p.height, duration_s:p.duration_s,
+    taken_by:p.taken_by, taken_at:p.taken_at, emoji_reaction:p.emoji_reaction
+  }));
+  if(!state.event) return;
+  const k = phKey(state.event.id);
+  if(!lsSet(k, slim)) lsSet(k, slim.slice(-20));
 }
 
 /* ========================= SUPABASE ========================= */
@@ -719,7 +1081,40 @@ function showHomeBlock(which){
   $('#view-home').scrollTop = 0;
 }
 
+/* ---------- INTRO ---------- */
+const INTRO_LAST = 2;
+let introAt = 0, fromSettings = false;
+
+function paintIntro(){
+  $$('.intro-slide').forEach(s => s.classList.toggle('hidden', +s.dataset.slide !== introAt));
+  $$('#intro-dots .dot').forEach((d,i) => d.classList.toggle('on', i === introAt));
+  $('#btn-intro-next').textContent = introAt < INTRO_LAST
+    ? 'Continuer'
+    : (fromSettings ? 'Retour à la fête 📸' : 'Créer notre album 🎉');
+  $('#btn-intro-skip').classList.toggle('hidden', introAt === INTRO_LAST || fromSettings);
+  $('#view-intro').scrollTop = 0;
+}
+
+function showIntro(){
+  introAt = 0;
+  $('#view-home').classList.add('hidden');
+  $('#view-camera').classList.add('hidden');
+  $('#view-gallery').classList.add('hidden');
+  $('#view-settings').classList.add('hidden');
+  $('#tabbar').classList.add('hidden');
+  $('#view-intro').classList.remove('hidden');
+  setSky('home');
+  paintIntro();
+}
+
+function endIntro(){
+  lsSet(K.SEEN, "1");
+  $('#view-intro').classList.add('hidden');
+  goHome();
+}
+
 function goHome(){
+  $('#view-intro').classList.add('hidden');
   $('#view-camera').classList.add('hidden');
   $('#view-gallery').classList.add('hidden');
   $('#view-settings').classList.add('hidden');
@@ -727,10 +1122,12 @@ function goHome(){
   $('#view-home').classList.remove('hidden');
   setSky('home');
   showHomeBlock('home');
+  renderSessions();
 }
 
 function goTab(tab){
   state.tab = tab;
+  $('#view-intro').classList.add('hidden');
   $('#view-home').classList.add('hidden');
   $('#tabbar').classList.remove('hidden');
   ['camera','gallery','settings'].forEach(t => $('#view-'+t).classList.toggle('hidden', t !== tab));
@@ -763,37 +1160,126 @@ function paintCountdown(){
   set('#cd-h', h); set('#cd-m', m); set('#cd-s', s);
 }
 
-/* ========================= COMPRESSION PHOTO ========================= */
-function compress(file){
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error('read'));
-    reader.onload = () => {
-      const img = new Image();
-      img.onerror = () => reject(new Error('decode'));
-      img.onload = () => {
-        const MAX = 800;
-        let w = img.width, h = img.height;
-        if(w > h && w > MAX){ h = Math.round(h * MAX / w); w = MAX; }
-        else if(h >= w && h > MAX){ w = Math.round(w * MAX / h); h = MAX; }
-        const c = document.createElement('canvas');
-        c.width = w; c.height = h;
-        const ctx = c.getContext('2d');
-        ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
-        ctx.drawImage(img, 0, 0, w, h);
-        let q = 0.75, out = c.toDataURL('image/jpeg', q);
-        // objectif < 150 ko
-        while(out.length * 0.75 > 150 * 1024 && q > 0.4){
-          q -= 0.1;
-          out = c.toDataURL('image/jpeg', q);
-        }
-        resolve(out);
-      };
-      img.src = reader.result;
+/* ========================= TRAITEMENT MÉDIA ========================= */
+const MAXES = { hd: 1600, max: 2560, ultra: 3840 };   // bord le plus long
+const RATIOS = { 'free': null, '1:1': 1, '4:3': 4/3, '9:16': 9/16 };
+
+function loadImage(file){
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onerror = () => rej(new Error('read'));
+    r.onload = () => {
+      const im = new Image();
+      im.onerror = () => rej(new Error('decode'));
+      im.onload = () => res(im);
+      im.src = r.result;
     };
-    reader.readAsDataURL(file);
+    r.readAsDataURL(file);
   });
 }
+
+// Calcule le rectangle source à découper pour respecter un ratio (crop centré)
+function cropBox(iw, ih, ratio){
+  if(!ratio) return { sx:0, sy:0, sw:iw, sh:ih };
+  const cur = iw / ih;
+  if(Math.abs(cur - ratio) < 0.01) return { sx:0, sy:0, sw:iw, sh:ih };
+  if(cur > ratio){                       // trop large → on rogne les côtés
+    const sw = Math.round(ih * ratio);
+    return { sx: Math.round((iw - sw)/2), sy:0, sw, sh:ih };
+  }
+  const sh = Math.round(iw / ratio);     // trop haut → on rogne haut/bas
+  return { sx:0, sy: Math.round((ih - sh)/2), sw:iw, sh };
+}
+
+function drawTo(img, box, outW, outH, quality, asBlob){
+  const c = document.createElement('canvas');
+  c.width = outW; c.height = outH;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#fff'; ctx.fillRect(0,0,outW,outH);
+  ctx.drawImage(img, box.sx, box.sy, box.sw, box.sh, 0, 0, outW, outH);
+  if(!asBlob) return c.toDataURL('image/jpeg', quality);
+  return new Promise(res => c.toBlob(res, 'image/jpeg', quality));
+}
+
+// Photo → { blob pleine résolution, thumb base64, dimensions }
+async function processPhoto(file, ratioKey, maxKey){
+  const img = await loadImage(file);
+  const box = cropBox(img.width, img.height, RATIOS[ratioKey]);
+  const MAX = MAXES[maxKey] || MAXES.max;
+
+  let w = box.sw, h = box.sh;
+  const long = Math.max(w, h);
+  if(long > MAX){ const k = MAX / long; w = Math.round(w*k); h = Math.round(h*k); }
+
+  const blob  = await drawTo(img, box, w, h, 0.92, true);
+  const TH    = 420;
+  const tk    = TH / Math.max(w, h);
+  const thumb = drawTo(img, box, Math.max(1,Math.round(w*tk)), Math.max(1,Math.round(h*tk)), 0.7, false);
+
+  return { blob, thumb, width:w, height:h, type:'photo', mime:'image/jpeg' };
+}
+
+// Vidéo → première image comme miniature, fichier brut conservé
+function processVideo(file){
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.preload = 'metadata'; v.muted = true; v.playsInline = true;
+    const done = (thumb, w, h, dur) => {
+      URL.revokeObjectURL(url);
+      resolve({ blob:file, thumb, width:w, height:h, duration:dur, type:'video', mime:file.type || 'video/mp4' });
+    };
+    v.onerror = () => done(null, 0, 0, 0);
+    v.onloadeddata = () => {
+      const grab = () => {
+        try{
+          const TH = 420;
+          const k = TH / Math.max(v.videoWidth, v.videoHeight);
+          const c = document.createElement('canvas');
+          c.width = Math.round(v.videoWidth*k); c.height = Math.round(v.videoHeight*k);
+          c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+          done(c.toDataURL('image/jpeg', 0.7), v.videoWidth, v.videoHeight, v.duration || 0);
+        }catch(e){ done(null, v.videoWidth||0, v.videoHeight||0, v.duration||0); }
+      };
+      if(v.currentTime < 0.1){ v.onseeked = grab; try{ v.currentTime = 0.1; }catch(e){ grab(); } }
+      else grab();
+    };
+    v.src = url;
+  });
+}
+
+function fmtSize(bytes){
+  if(bytes < 1024*1024) return Math.round(bytes/1024) + ' ko';
+  return (bytes/1024/1024).toFixed(1) + ' Mo';
+}
+function fmtDur(s){
+  if(!s || !isFinite(s)) return '';
+  const m = Math.floor(s/60), r = Math.round(s%60);
+  return m + ':' + String(r).padStart(2,'0');
+}
+
+/* ========================= UPLOAD STORAGE ========================= */
+const BUCKET = 'fete-media';
+
+async function uploadMedia(media){
+  const ext  = media.type === 'video' ? (media.mime.includes('quicktime') ? 'mov' : 'mp4') : 'jpg';
+  const rand = (crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2);
+  const path = state.event.id + '/' + rand + '.' + ext;
+
+  const { error } = await sb.storage.from(BUCKET).upload(path, media.blob, {
+    contentType: media.mime, cacheControl: '31536000', upsert: false
+  });
+  if(error) throw error;
+
+  const { data } = sb.storage.from(BUCKET).getPublicUrl(path);
+  return { path, url: data.publicUrl };
+}
+
+// URL d'affichage : Storage si dispo, sinon base64 legacy v1
+function srcOf(p){ return p.media_url || p.photo_data || ''; }
+function thumbOf(p){ return p.thumb_data || p.photo_data || p.media_url || ''; }
+function isVideo(p){ return p.media_type === 'video'; }
 
 /* ========================= DONNÉES ========================= */
 async function createEvent(payload){
@@ -835,15 +1321,15 @@ async function fetchEventByCode(code){
 
 async function loadPhotos(){
   if(!sb || !state.event || String(state.event.id).startsWith('local-')){
-    state.photos = lsGet(K.PH, []);
+    state.photos = lsGet(phKey(state.event.id), []);
     return;
   }
   sync('busy');
   const { data, error } = await sb.from('once_photos')
-    .select('id,photo_data,taken_by,taken_at,emoji_reaction')
+    .select(COLS)
     .eq('event_id', state.event.id)
     .order('taken_at', { ascending:true });
-  if(error){ sync('off'); state.photos = lsGet(K.PH, []); return; }
+  if(error){ sync('off'); state.photos = lsGet(phKey(state.event.id), []); return; }
   state.photos = data || [];
   cachePhotos();
   sync('ok');
@@ -854,7 +1340,7 @@ async function refreshEvent(){
   const { data } = await sb.from('once_events').select('*').eq('id', state.event.id).maybeSingle();
   if(data){
     state.event = mapEvent(data);
-    lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
+    touchSession();
   }
 }
 
@@ -868,7 +1354,7 @@ function subscribe(){
     }, payload => {
       const p = payload.new;
       if(!p || state.photos.some(x => x.id === p.id)) return; // anti-écho
-      state.photos.push({ id:p.id, photo_data:p.photo_data, taken_by:p.taken_by, taken_at:p.taken_at, emoji_reaction:p.emoji_reaction });
+      state.photos.push(p);
       cachePhotos();
       render();
       sync('ok');
@@ -877,6 +1363,36 @@ function subscribe(){
 }
 
 /* ========================= RENDU ========================= */
+const TYPE_ICON = { birthday:'🎂', school:'🏫', party:'🌸', holiday:'🎄', other:'✨' };
+
+function sessionRow(x, cur){
+  const e = x.event;
+  return '<button class="sess" data-sess="'+esc(e.id)+'" aria-current="'+(cur?'true':'false')+'">'+
+    '<span class="se">'+(TYPE_ICON[e.eventType] || '✨')+'</span>'+
+    '<span class="sx"><span class="sn">'+esc(e.eventName)+'</span>'+
+    '<span class="sc">'+esc(e.code)+(x.isHost?' · organisateur':'')+'</span></span>'+
+    '<span class="sk">'+(cur ? 'Ici' : 'Ouvrir')+'</span>'+
+  '</button>';
+}
+
+function renderSessions(){
+  const list = getSessions();
+  const curId = state.event && state.event.id;
+
+  // accueil : uniquement si des albums existent
+  const hs = $('#home-sessions');
+  if(list.length){
+    hs.classList.remove('hidden');
+    hs.innerHTML = '<p class="eyebrow">Mes albums</p>' + list.map(x => sessionRow(x, false)).join('');
+  } else hs.classList.add('hidden');
+
+  // réglages
+  const ss = $('#set-sessions');
+  if(ss) ss.innerHTML = list.length
+    ? list.map(x => sessionRow(x, x.event.id === curId)).join('')
+    : '<p class="note" style="margin-top:4px">Aucun autre album.</p>';
+}
+
 function render(){
   const e = state.event;
   if(!e) return;
@@ -886,7 +1402,9 @@ function render(){
   // header caméra
   $('#cam-evname').textContent = e.eventName;
   $('#cam-meta').textContent = (state.me ? state.me + ' · ' : '') + e.code + (state.isHost ? ' · organisateur' : '');
-  $('#cam-count').textContent = n === 0 ? '0 photo 📸' : plural(n, 'photo', 'photos') + ' 📸';
+  const nv = state.photos.filter(isVideo).length;
+  $('#cam-count').textContent = n === 0 ? '0 souvenir 📸'
+    : (nv ? n + ' · ' + nv + ' 🎥' : plural(n, 'photo', 'photos') + ' 📸');
 
   // état fermé
   const closed = !!e.isClosed;
@@ -909,7 +1427,10 @@ function render(){
   } else {
     strip.innerHTML = last.map(p => {
       const i = state.photos.findIndex(x => x.id === p.id);
-      return '<img src="'+p.photo_data+'" alt="Photo de '+esc(p.taken_by||'un invité')+'" data-i="'+i+'">';
+      return '<div class="wrap-s">'+
+        (isVideo(p) ? '<span class="badge-v">▶ '+esc(fmtDur(p.duration_s))+'</span>' : '')+
+        '<img src="'+thumbOf(p)+'" alt="'+(isVideo(p)?'Vidéo':'Photo')+' de '+esc(p.taken_by||'un invité')+'" data-i="'+i+'">'+
+      '</div>';
     }).join('');
     $('#strip-more').textContent = n > 12 ? '+' + (n-12) : '';
   }
@@ -917,7 +1438,7 @@ function render(){
   // galerie
   $('#gal-meta').textContent = n === 0
     ? 'Rien encore'
-    : plural(n,'photo partagée','photos partagées') + ' par ' + plural(people.length || 1,'personne','personnes') + ' 💕';
+    : plural(n,'souvenir partagé','souvenirs partagés') + ' par ' + plural(people.length || 1,'personne','personnes') + ' 💕';
   const gb = $('#gal-body');
   if(isRevealLocked()){
     gb.innerHTML =
@@ -938,7 +1459,8 @@ function render(){
     gb.innerHTML = '<div class="grid">' + state.photos.slice().reverse().map(p => {
       const i = state.photos.findIndex(x => x.id === p.id);
       return '<div class="ph" data-i="'+i+'">'+
-        '<img src="'+p.photo_data+'" alt="Photo de '+esc(p.taken_by||'un invité')+'" loading="lazy">'+
+        (isVideo(p) ? '<span class="badge-v">▶ '+esc(fmtDur(p.duration_s))+'</span>' : '')+
+        '<img src="'+thumbOf(p)+'" alt="'+(isVideo(p)?'Vidéo':'Photo')+' de '+esc(p.taken_by||'un invité')+'" loading="lazy">'+
         '<div class="by"><span>'+esc(p.taken_by || 'Invité')+'</span><span class="rx">'+esc(p.emoji_reaction||'')+'</span></div>'+
       '</div>';
     }).join('') + '</div>';
@@ -952,15 +1474,54 @@ function render(){
     ? people.map(p => '<span>'+esc(p)+'</span>').join('')
     : '<span>Personne encore</span>';
   $('#set-host-card').classList.toggle('hidden', !state.isHost || closed);
+  renderSessions();
 }
 
 /* ========================= ACTIONS ========================= */
 function enterEvent(ev, me, isHost){
+  // fermer le canal de l'album précédent — sinon abonnements fantômes
+  if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
+  clearInterval(cdTimer);
+
   state.event = ev; state.me = me || ''; state.isHost = !!isHost;
-  lsSet(K.EV, { event: ev, me: state.me, isHost: state.isHost });
+  state.photos = lsGet(phKey(ev.id), []);   // cache propre à CET album
+  touchSession();
   goTab('camera');
-  loadPhotos().then(() => { render(); subscribe(); });
+  render();
+  loadPhotos().then(() => { render(); subscribe(); maybeHowTo(); });
 }
+
+// Bascule vers un album déjà rejoint
+function switchTo(id){
+  const s = getSessions().find(x => x.event && x.event.id === id);
+  if(!s) return;
+  enterEvent(s.event, s.me, s.isHost);
+  toast('Album : ' + s.event.eventName);
+}
+
+/* --- intro --- */
+$('#btn-intro-next').addEventListener('click', () => {
+  if(introAt < INTRO_LAST){ introAt++; paintIntro(); return; }
+  // dernier volet
+  if(fromSettings){
+    fromSettings = false;
+    $('#view-intro').classList.add('hidden');
+    if(state.event) goTab('settings'); else goHome();
+    return;
+  }
+  endIntro();
+  showHomeBlock('create');
+});
+$('#btn-intro-skip').addEventListener('click', endIntro);
+
+let ix = 0;
+$('#view-intro').addEventListener('touchstart', e => { ix = e.changedTouches[0].clientX; }, {passive:true});
+$('#view-intro').addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - ix;
+  if(Math.abs(dx) < 50) return;
+  if(dx < 0 && introAt < INTRO_LAST){ introAt++; paintIntro(); }
+  if(dx > 0 && introAt > 0){ introAt--; paintIntro(); }
+}, {passive:true});
 
 /* --- accueil --- */
 $$('[data-go]').forEach(b => b.addEventListener('click', ev => {
@@ -1018,8 +1579,9 @@ $('#btn-create').addEventListener('click', async () => {
       revealAt
     });
     state.event = ev; state.me = hostName; state.isHost = true;
+    saveSession(ev, hostName, true);
     lsSet(K.EV, { event: ev, me: hostName, isHost: true });
-    lsSet(K.PH, []);
+    lsSet(phKey(ev.id), []);
     $('#out-code').textContent = ev.code;
     showHomeBlock('code');
     burstConfetti();
@@ -1073,7 +1635,7 @@ $('#btn-join').addEventListener('click', () => {
   const me = $('#in-photog').value.trim();
   if(!me){ toast('Ajoute ton prénom.'); $('#in-photog').focus(); return; }
   if(!state.event){ toast('Cherche d\'abord la fête.'); return; }
-  lsSet(K.PH, []);
+  lsSet(phKey(state.event.id), []);
   enterEvent(state.event, me, false);
   burstConfetti();
 });
@@ -1084,29 +1646,112 @@ $('#tabbar').addEventListener('click', ev => {
   goTab(b.dataset.tab);
 });
 
-/* --- prise de photo --- */
-$('#btn-shoot').addEventListener('click', () => {
-  if(state.event && state.event.isClosed){ toast('L\'album est terminé 🎉'); return; }
-  $('#file-in').value = '';
-  $('#file-in').click();
+/* --- mode d'emploi --- */
+let htAt = 0;
+function paintHowTo(){
+  $$('.ht-slide').forEach(x => x.classList.toggle('hidden', +x.dataset.ht !== htAt));
+  $$('#ht-dots .dot').forEach((d,i) => d.classList.toggle('on', i === htAt));
+  $('#ht-next').textContent = htAt === 0 ? 'Et ensuite ?' : "C'est parti 📸";
+}
+function showHowTo(){
+  htAt = 0;
+  if(state.event) $('#ht-code').textContent = state.event.code;
+  paintHowTo();
+  $('#howto').classList.remove('hidden');
+}
+function closeHowTo(){
+  lsSet(K.HOWTO, "1");
+  $('#howto').classList.add('hidden');
+}
+// Affiché une seule fois, à la première entrée dans un album
+function maybeHowTo(){
+  if(lsGet(K.HOWTO, null) === "1") return;
+  setTimeout(showHowTo, 500);
+}
+$('#ht-next').addEventListener('click', () => {
+  if(htAt === 0){ htAt = 1; paintHowTo(); return; }
+  closeHowTo(); burstConfetti();
+});
+$('#ht-close').addEventListener('click', closeHowTo);
+
+let hx = 0;
+$('#howto').addEventListener('touchstart', e => { hx = e.changedTouches[0].clientX; }, {passive:true});
+$('#howto').addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - hx;
+  if(Math.abs(dx) < 50) return;
+  if(dx < 0 && htAt === 0){ htAt = 1; paintHowTo(); }
+  if(dx > 0 && htAt === 1){ htAt = 0; paintHowTo(); }
+}, {passive:true});
+
+/* --- format --- */
+$('#ratio-row').addEventListener('click', ev => {
+  const b = ev.target.closest('.rt'); if(!b) return;
+  $$('#ratio-row .rt').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  state.ratio = b.dataset.ratio;
+  lsSet(K.RATIO, state.ratio);
 });
 
-$('#file-in').addEventListener('change', async ev => {
-  const f = ev.target.files && ev.target.files[0];
+/* --- capture --- */
+function openPicker(inputId){
+  if(state.event && state.event.isClosed){ toast('L\'album est terminé 🎉'); return; }
+  const el = $('#' + inputId); el.value = ''; el.click();
+}
+$('#btn-shoot').addEventListener('click',  () => openPicker('file-in'));
+$('#btn-video').addEventListener('click',  () => openPicker('file-vid'));
+$('#btn-import').addEventListener('click', () => openPicker('file-lib'));
+
+async function handleFile(f){
   if(!f) return;
   sync('busy');
   try{
-    const dataUrl = await compress(f);
-    state.pending = dataUrl; state.rx = '';
-    $('#prev-img').src = dataUrl;
+    const isVid = (f.type || '').startsWith('video/');
+    const media = isVid ? await processVideo(f) : await processPhoto(f, state.ratio, state.quality);
+    state.pending = media; state.rx = '';
+
+    const im = $('#prev-img'), vd = $('#prev-vid');
+    if(isVid){
+      im.classList.add('hidden'); vd.classList.remove('hidden');
+      vd.src = URL.createObjectURL(f);
+      $('#prev-size').textContent = fmtSize(f.size) + ' · ' + fmtDur(media.duration) + ' · ' + media.width + '×' + media.height;
+    } else {
+      vd.classList.add('hidden'); vd.removeAttribute('src');
+      im.classList.remove('hidden'); im.src = media.thumb;
+      $('#prev-size').textContent = fmtSize(media.blob.size) + ' · ' + media.width + '×' + media.height;
+    }
+
     $$('#rx-row .rx-btn').forEach(b => b.setAttribute('aria-pressed','false'));
     $('#prev-name-wrap').classList.toggle('hidden', !!state.me);
     $('#in-prevname').value = state.me || '';
+    $('#up-bar').classList.add('hidden'); $('#up-fill').style.width = '0';
     $('#preview').classList.remove('hidden');
     sync('ok');
   }catch(e){
-    sync('off'); toast('Photo illisible. Réessaie.');
+    console.error('[Petite Fête] média', e);
+    sync('off'); toast('Fichier illisible. Réessaie.');
   }
+}
+
+['file-in','file-vid'].forEach(id => {
+  $('#'+id).addEventListener('change', ev => handleFile(ev.target.files && ev.target.files[0]));
+});
+
+// Import multiple depuis la galerie : envoi direct, sans preview
+$('#file-lib').addEventListener('change', async ev => {
+  const files = Array.from(ev.target.files || []);
+  if(!files.length) return;
+  if(files.length === 1){ handleFile(files[0]); return; }
+  if(!state.me){ handleFile(files[0]); return; }   // besoin du prénom au moins une fois
+  toast('Envoi de ' + files.length + ' fichiers…', 4000);
+  let ok = 0;
+  for(const f of files){
+    try{
+      const isVid = (f.type||'').startsWith('video/');
+      const m = isVid ? await processVideo(f) : await processPhoto(f, state.ratio, state.quality);
+      await sendMedia(m, state.me, null);
+      ok++; render();
+    }catch(e){ console.error(e); }
+  }
+  toast(ok + '/' + files.length + ' envoyés ✓');
 });
 
 $('#rx-row').addEventListener('click', ev => {
@@ -1117,9 +1762,53 @@ $('#rx-row').addEventListener('click', ev => {
   else state.rx = '';
 });
 
-function closePreview(){ $('#preview').classList.add('hidden'); state.pending = null; }
-$('#btn-retake').addEventListener('click', () => { closePreview(); $('#file-in').value=''; $('#file-in').click(); });
+function closePreview(){
+  $('#preview').classList.add('hidden');
+  const vd = $('#prev-vid');
+  if(vd.src){ vd.pause(); URL.revokeObjectURL(vd.src); vd.removeAttribute('src'); }
+  state.pending = null;
+}
+$('#btn-retake').addEventListener('click', () => { closePreview(); openPicker('file-in'); });
 $('#prev-close').addEventListener('click', closePreview);
+
+/* --- envoi --- */
+async function sendMedia(media, name, onProgress){
+  const remote = sb && state.event && !String(state.event.id).startsWith('local-');
+
+  if(!remote){
+    // mode local : on ne garde que la miniature (le blob ne survit pas au rechargement)
+    const local = {
+      id: 'tmp-' + Date.now(),
+      media_type: media.type, photo_data: media.thumb, thumb_data: media.thumb,
+      width: media.width, height: media.height, duration_s: media.duration || null,
+      taken_by: name, taken_at: new Date().toISOString(), emoji_reaction: state.rx || null
+    };
+    state.photos.push(local); cachePhotos(); sync('off');
+    return local;
+  }
+
+  if(onProgress) onProgress(15);
+  const up = await uploadMedia(media);
+  if(onProgress) onProgress(70);
+
+  const { data, error } = await sb.from('once_photos').insert({
+    event_id: state.event.id,
+    media_type: media.type,
+    storage_path: up.path,
+    media_url: up.url,
+    thumb_data: media.thumb,
+    width: media.width, height: media.height,
+    duration_s: media.duration || null,
+    taken_by: name,
+    emoji_reaction: state.rx || null
+  }).select(COLS).single();
+  if(error) throw error;
+
+  if(onProgress) onProgress(100);
+  if(!state.photos.some(x => x.id === data.id)) state.photos.push(data);
+  cachePhotos(); sync('ok');
+  return data;
+}
 
 $('#btn-send').addEventListener('click', async () => {
   if(!state.pending) return;
@@ -1127,38 +1816,28 @@ $('#btn-send').addEventListener('click', async () => {
   if(!name){ toast('Ajoute ton prénom.'); $('#in-prevname').focus(); return; }
   if(name !== state.me){
     state.me = name;
-    lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
+    touchSession();
   }
   const btn = $('#btn-send'); btn.disabled = true; btn.textContent = 'Envoi…'; sync('busy');
+  $('#up-bar').classList.remove('hidden');
+  const prog = v => { $('#up-fill').style.width = v + '%'; };
+  prog(5);
 
-  const local = {
-    id: 'tmp-' + Date.now(),
-    photo_data: state.pending,
-    taken_by: name,
-    taken_at: new Date().toISOString(),
-    emoji_reaction: state.rx || null
-  };
-
-  const remote = sb && state.event && !String(state.event.id).startsWith('local-');
-  if(remote){
-    const { data, error } = await sb.from('once_photos').insert({
-      event_id: state.event.id,
-      photo_data: state.pending,
-      taken_by: name,
-      emoji_reaction: state.rx || null
-    }).select('id,photo_data,taken_by,taken_at,emoji_reaction').single();
-    if(error){ sync('off'); toast('Envoi impossible. Photo gardée sur ce téléphone.'); state.photos.push(local); }
-    else if(!state.photos.some(x => x.id === data.id)){ state.photos.push(data); sync('ok'); }
-    else sync('ok');
-  } else {
-    state.photos.push(local); sync('off');
+  try{
+    await sendMedia(state.pending, name, prog);
+    closePreview(); render(); burstConfetti();
+  }catch(err){
+    sync('off');
+    console.error('[Petite Fête] envoi', err);
+    const m = (err && err.message) || '';
+    if(/Bucket not found|does not exist/i.test(m)) toast("Bucket 'fete-media' absent — exécute la migration V2.", 6000);
+    else if(/row-level security|policy/i.test(m))  toast("Policies Storage manquantes — voir migration V2.", 6000);
+    else if(/exceeded the maximum|too large|Payload/i.test(m)) toast("Fichier trop lourd (max 100 Mo).", 5000);
+    else toast("Envoi impossible : " + (m || 'erreur inconnue'), 6000);
+  }finally{
+    $('#up-bar').classList.add('hidden');
+    btn.disabled = false; btn.textContent = 'Envoyer 🚀';
   }
-
-  cachePhotos();
-  closePreview();
-  render();
-  burstConfetti();
-  btn.disabled = false; btn.textContent = 'Envoyer 🚀';
 });
 
 /* --- lightbox --- */
@@ -1170,7 +1849,24 @@ function openLightbox(i){
 }
 function paintLightbox(){
   const p = state.photos[state.lbIndex]; if(!p) return;
-  $('#lb-img').src = p.photo_data;
+  const vid = $('#lb-video'), im = $('#lb-img');
+  vid.pause();
+  if(isVideo(p)){
+    im.classList.add('hidden');
+    vid.classList.remove('hidden');
+    vid.poster = p.thumb_data || '';
+    vid.src = srcOf(p);
+  } else {
+    vid.classList.add('hidden'); vid.removeAttribute('src');
+    im.classList.remove('hidden');
+    im.src = thumbOf(p);              // affichage immédiat
+    const full = srcOf(p);
+    if(full && full !== im.src){      // puis pleine résolution
+      const hi = new Image();
+      hi.onload = () => { if(state.photos[state.lbIndex] === p) im.src = full; };
+      hi.src = full;
+    }
+  }
   const d = new Date(p.taken_at);
   const hh = String(d.getHours()).padStart(2,'0') + 'h' + String(d.getMinutes()).padStart(2,'0');
   $('#lb-cap').innerHTML = esc(p.taken_by || 'Invité') + ' ' + esc(p.emoji_reaction || '') + '<span>' + hh + '</span>';
@@ -1178,7 +1874,10 @@ function paintLightbox(){
   $('#lb-prev').disabled = state.lbIndex <= 0;
   $('#lb-next').disabled = state.lbIndex >= state.photos.length - 1;
 }
-$('#lb-close').addEventListener('click', () => $('#lightbox').classList.add('hidden'));
+$('#lb-close').addEventListener('click', () => {
+  const v = $('#lb-video'); v.pause(); v.removeAttribute('src');
+  $('#lightbox').classList.add('hidden');
+});
 $('#lb-prev').addEventListener('click', () => { if(state.lbIndex > 0){ state.lbIndex--; paintLightbox(); } });
 $('#lb-next').addEventListener('click', () => { if(state.lbIndex < state.photos.length-1){ state.lbIndex++; paintLightbox(); } });
 
@@ -1216,18 +1915,59 @@ $('#btn-close-album').addEventListener('click', async () => {
     if(error){ sync('off'); toast('Fermeture impossible. Réessaie.'); return; }
   }
   state.event.isClosed = true;
-  lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
+  touchSession();
   sync('ok'); render();
   toast('Album fermé 🔒 La galerie reste ouverte.');
 });
 
-$('#btn-leave').addEventListener('click', () => {
-  if(!confirm('Quitter cet événement ? Tu pourras y revenir avec le code.')) return;
+$('#btn-add-album').addEventListener('click', () => {
   if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
   clearInterval(cdTimer);
-  lsDel(K.EV); lsDel(K.PH);
+  $('#tabbar').classList.add('hidden');
+  ['camera','gallery','settings'].forEach(t => $('#view-'+t).classList.add('hidden'));
+  $('#view-home').classList.remove('hidden');
+  setSky('home');
+  showHomeBlock('join');
+  renderSessions();
+});
+
+$('#qual-row').addEventListener('click', ev => {
+  const b = ev.target.closest('.chip'); if(!b) return;
+  $$('#qual-row .chip').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+  state.quality = b.dataset.q;
+  lsSet(K.QUAL, state.quality);
+  toast('Qualité : ' + b.textContent.trim());
+});
+
+$('#btn-howto').addEventListener('click', showHowTo);
+
+$('#btn-show-intro').addEventListener('click', () => {
+  fromSettings = true;
+  showIntro();
+  introAt = INTRO_LAST; paintIntro();   // ouvre directement sur l'histoire d'origine
+});
+
+$('#btn-leave').addEventListener('click', () => {
+  if(!confirm('Quitter cet album ? Tu pourras y revenir avec le code.')) return;
+  if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
+  clearInterval(cdTimer);
+  const id = state.event && state.event.id;
+  if(id) dropSession(id);
+  lsDel(K.EV);
   state.event = null; state.me = ''; state.isHost = false; state.photos = [];
-  goHome();
+  const rest = getSessions();
+  if(rest.length) switchTo(rest[0].event.id);
+  else goHome();
+});
+
+// Changer d'album depuis les réglages
+$('#set-sessions').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-sess]'); if(!b) return;
+  switchTo(b.dataset.sess);
+});
+$('#home-sessions').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-sess]'); if(!b) return;
+  switchTo(b.dataset.sess);
 });
 
 /* ========================= DÉMARRAGE ========================= */
@@ -1244,14 +1984,19 @@ async function probe(){
 }
 
 async function boot(){
+  state.ratio   = lsGet(K.RATIO, 'free') || 'free';
+  state.quality = lsGet(K.QUAL, 'max') || 'max';
+  $$('#ratio-row .rt').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ratio === state.ratio)));
+  $$('#qual-row .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === state.quality)));
+
   const ok = initSupabase();
   if(!ok) sync('off');
   probe();
 
-  const saved = lsGet(K.EV, null);
+  const saved = lsGet(K.EV, null) || (getSessions()[0] || null);
   if(saved && saved.event && saved.event.id){
     state.event = saved.event; state.me = saved.me || ''; state.isHost = !!saved.isHost;
-    state.photos = lsGet(K.PH, []);
+    state.photos = lsGet(phKey(state.event.id), []);
     goTab('camera');
     render();
     await refreshEvent();
@@ -1259,6 +2004,8 @@ async function boot(){
     render();
     subscribe();
     if(isRevealLocked() && state.tab === 'gallery') startCountdown();
+  } else if(lsGet(K.SEEN, null) !== "1"){
+    showIntro();
   } else {
     goHome();
   }
