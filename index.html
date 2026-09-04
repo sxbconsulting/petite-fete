@@ -167,9 +167,9 @@ body[data-sky="night"] .card{background:rgba(255,255,255,.08);backdrop-filter:bl
 }
 .choice:active{transform:scale(.96);box-shadow:var(--sh-lift)}
 .choice .ic{font-size:30px;line-height:1}
-.choice .tx{flex:1}
-.choice .tt{font-size:18px;font-weight:600}
-.choice .ds{font-size:13px;color:var(--ink-soft);margin-top:2px}
+.choice .tx{flex:1;min-width:0}
+.choice .tt{display:block;font-size:18px;font-weight:600}
+.choice .ds{display:block;font-size:13px;color:var(--ink-soft);margin-top:3px;line-height:1.35}
 .choice .ar{color:var(--ink-soft);font-size:20px}
 
 /* ---------- FORM ---------- */
@@ -420,6 +420,15 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 #howto .dots .dot{border-color:#c9bde9}
 #howto .dots .dot.on{background:#fff;border-color:#fff}
 
+#localbar{
+  position:fixed;top:0;left:0;right:0;z-index:80;
+  background:#3a2e52;color:#fff;font-size:12.5px;font-weight:500;
+  padding:calc(7px + env(safe-area-inset-top)) 14px 7px;text-align:center;
+  line-height:1.35;
+}
+#localbar b{text-decoration:underline;cursor:pointer;white-space:nowrap}
+body.haslocal #app{padding-top:34px}
+
 /* ---------- SESSIONS ---------- */
 .sess{
   display:flex;align-items:center;gap:12px;width:100%;text-align:left;
@@ -431,10 +440,11 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 .sess:active{transform:scale(.96)}
 .sess .se{font-size:24px;line-height:1}
 .sess .sx{flex:1;min-width:0}
-.sess .sn{font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess .sn{display:block;font-size:15.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .sess .sc{
-  font-family:'Nunito',sans-serif;font-weight:800;font-size:10.5px;letter-spacing:1px;
-  color:var(--ink-soft);margin-top:2px;text-transform:uppercase;
+  display:block;font-family:'Nunito',sans-serif;font-weight:800;font-size:10.5px;
+  letter-spacing:1px;color:var(--ink-soft);margin-top:3px;text-transform:uppercase;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
 }
 .sess .sk{
   flex:0 0 auto;font-family:'Nunito',sans-serif;font-weight:800;font-size:10px;
@@ -558,6 +568,7 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 <div id="sky"></div>
 <div id="deco"></div>
 <div id="sync">⟳</div>
+<div id="localbar" class="hidden">⚠︎ Mode local — tes invités ne peuvent pas rejoindre. <b>Réactiver</b></div>
 
 <div id="app">
 
@@ -787,6 +798,10 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
         <p class="eyebrow">Mes albums</p>
         <div id="set-sessions"></div>
         <button class="btn ghost" id="btn-add-album">+ Rejoindre un autre album</button>
+        <div class="divider"></div>
+        <button class="btn ghost" id="btn-rename">Renommer cet album ✏️</button>
+        <button class="btn danger" id="btn-delete">Supprimer cet album 🗑️</button>
+        <p class="note" id="del-note">La suppression efface l'album et toutes ses photos, pour tout le monde.</p>
       </div>
 
       <div class="card">
@@ -911,6 +926,18 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 <script>
 (function(){
 "use strict";
+
+/* ========================= DIAGNOSTIC ========================= */
+// Toute erreur JS non rattrapée devient visible, au lieu d'un bouton muet
+window.addEventListener('error', e => {
+  console.error('[Petite Fête] erreur', e.error || e.message);
+  try{ toast('Erreur : ' + (e.message || 'inconnue'), 7000); }catch(_){}
+});
+window.addEventListener('unhandledrejection', e => {
+  const m = (e.reason && (e.reason.message || e.reason)) || 'inconnue';
+  console.error('[Petite Fête] promesse rejetée', e.reason);
+  try{ toast('Erreur : ' + m, 7000); }catch(_){}
+});
 
 /* ========================= CONFIG ========================= */
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
@@ -1078,6 +1105,9 @@ function showHomeBlock(which){
   ['home-choices','form-create','block-code','form-join'].forEach(id => $('#'+id).classList.add('hidden'));
   const map = { home:'home-choices', create:'form-create', code:'block-code', join:'form-join' };
   $('#' + (map[which] || 'home-choices')).classList.remove('hidden');
+  // la liste d'albums n'a de sens que sur l'accueil
+  const hs = $('#home-sessions');
+  if(hs) hs.classList.toggle('hidden', which !== 'home' || !getSessions().length);
   $('#view-home').scrollTop = 0;
 }
 
@@ -1370,7 +1400,7 @@ function sessionRow(x, cur){
   return '<button class="sess" data-sess="'+esc(e.id)+'" aria-current="'+(cur?'true':'false')+'">'+
     '<span class="se">'+(TYPE_ICON[e.eventType] || '✨')+'</span>'+
     '<span class="sx"><span class="sn">'+esc(e.eventName)+'</span>'+
-    '<span class="sc">'+esc(e.code)+(x.isHost?' · organisateur':'')+'</span></span>'+
+    '<span class="sc">'+esc(e.code)+(String(e.id).startsWith('local-')?' · local':'')+(x.isHost?' · organisateur':'')+'</span></span>'+
     '<span class="sk">'+(cur ? 'Ici' : 'Ouvrir')+'</span>'+
   '</button>';
 }
@@ -1474,21 +1504,30 @@ function render(){
     ? people.map(p => '<span>'+esc(p)+'</span>').join('')
     : '<span>Personne encore</span>';
   $('#set-host-card').classList.toggle('hidden', !state.isHost || closed);
+  $('#btn-rename').classList.toggle('hidden', !state.isHost);
+  $('#btn-delete').textContent = state.isHost ? 'Supprimer cet album 🗑️' : 'Retirer de mes albums 🗑️';
+  $('#del-note').textContent = state.isHost
+    ? "La suppression efface l'album et toutes ses photos, pour tout le monde."
+    : "L'album sera retiré de ta liste, mais continuera d'exister pour les autres.";
   renderSessions();
 }
 
 /* ========================= ACTIONS ========================= */
 function enterEvent(ev, me, isHost){
+  if(!ev || !ev.id){ toast("Album introuvable. Reviens à l'accueil."); goHome(); return; }
+
   // fermer le canal de l'album précédent — sinon abonnements fantômes
   if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
   clearInterval(cdTimer);
 
   state.event = ev; state.me = me || ''; state.isHost = !!isHost;
-  state.photos = lsGet(phKey(ev.id), []);   // cache propre à CET album
+  state.photos = lsGet(phKey(ev.id), []) || [];   // cache propre à CET album
   touchSession();
   goTab('camera');
   render();
-  loadPhotos().then(() => { render(); subscribe(); maybeHowTo(); });
+  loadPhotos()
+    .then(() => { render(); subscribe(); maybeHowTo(); })
+    .catch(err => { console.error('[Petite Fête] loadPhotos', err); sync('off'); });
 }
 
 // Bascule vers un album déjà rejoint
@@ -1534,9 +1573,29 @@ $$('[data-go]').forEach(b => b.addEventListener('click', ev => {
 
 $('#link-local').addEventListener('click', ev => {
   ev.preventDefault();
+  if(!confirm("Mode local : les photos restent sur CE téléphone.\n\nTes invités ne pourront PAS rejoindre tes albums.\n\nContinuer ?")) return;
   lsSet(K.SKIP, "1"); sb = null;
-  toast('Mode local activé — rien ne quitte ce téléphone.');
+  paintLocalBar();
+  toast('Mode local activé — album non partageable.', 4000);
   showHomeBlock('create');
+});
+
+// Bandeau mode local + réactivation
+function paintLocalBar(){
+  const off = !sb;
+  $('#localbar').classList.toggle('hidden', !off);
+  document.body.classList.toggle('haslocal', off);
+}
+$('#localbar').addEventListener('click', ev => {
+  if(ev.target.tagName !== 'B') return;
+  lsDel(K.SKIP);
+  if(initSupabase()){
+    paintLocalBar();
+    toast('Synchronisation réactivée ✓');
+    probe();
+  } else {
+    toast("Impossible de se connecter. Vérifie ta connexion.", 4000);
+  }
 });
 
 $('#type-chips').addEventListener('click', ev => {
@@ -1572,6 +1631,9 @@ $('#btn-create').addEventListener('click', async () => {
   }
   const btn = $('#btn-create'); btn.disabled = true; btn.textContent = 'Création…'; sync('busy');
   try{
+    if(!sb && !confirm("Tu es en mode local : cet album ne sera PAS partageable.\n\nCréer quand même ?")){
+      btn.disabled = false; btn.textContent = "Créer l'album 🎉"; return;
+    }
     const ev = await createEvent({
       eventName, childName, hostName,
       eventType: state.type,
@@ -1900,6 +1962,73 @@ $('#gal-body').addEventListener('click', ev => {
 });
 
 /* --- réglages --- */
+/* --- renommer --- */
+$('#btn-rename').addEventListener('click', async () => {
+  if(!state.event) return;
+  if(!state.isHost){ toast("Seul l'organisateur peut renommer."); return; }
+  const nom = prompt("Nouveau nom de l'album :", state.event.eventName);
+  if(nom === null) return;
+  const clean = nom.trim();
+  if(!clean){ toast('Le nom ne peut pas être vide.'); return; }
+
+  sync('busy');
+  if(sb && !String(state.event.id).startsWith('local-')){
+    const { error } = await sb.from('once_events').update({ event_name: clean }).eq('id', state.event.id);
+    if(error){ sync('off'); toast(explainError(error), 5000); return; }
+  }
+  state.event.eventName = clean;
+  touchSession();
+  sync('ok'); render();
+  toast('Album renommé ✓');
+});
+
+/* --- supprimer --- */
+$('#btn-delete').addEventListener('click', async () => {
+  if(!state.event) return;
+  const e = state.event, local = String(e.id).startsWith('local-');
+
+  if(!state.isHost){
+    if(!confirm("Retirer « " + e.eventName + " » de TES albums ?\n\nL'album continuera d'exister pour les autres.")) return;
+    dropSession(e.id);
+    const rest = getSessions();
+    state.event = null; state.photos = []; state.me = ''; state.isHost = false;
+    lsDel(K.EV);
+    if(rest.length) switchTo(rest[0].event.id); else goHome();
+    toast('Album retiré de ta liste.');
+    return;
+  }
+
+  const n = state.photos.length;
+  if(!confirm("SUPPRIMER « " + e.eventName + " » ?\n\n" +
+      (n ? n + " souvenir(s) seront effacés " : "") +
+      (local ? "de ce téléphone." : "pour TOUS les participants.") +
+      "\n\nCette action est définitive.")) return;
+  if(!confirm("Dernière confirmation : supprimer définitivement ?")) return;
+
+  sync('busy');
+  if(sb && !local){
+    // fichiers Storage d'abord, sinon ils resteraient orphelins
+    try{
+      const paths = state.photos.map(p => p.storage_path).filter(Boolean);
+      if(paths.length) await sb.storage.from(BUCKET).remove(paths);
+    }catch(err){ console.warn('[Petite Fête] storage', err); }
+
+    const { error } = await sb.from('once_events').delete().eq('id', e.id);
+    if(error){ sync('off'); toast(explainError(error), 5000); return; }
+  }
+
+  if(channel){ try{ sb.removeChannel(channel); }catch(err){} channel = null; }
+  clearInterval(cdTimer);
+  dropSession(e.id);
+  lsDel(K.EV);
+  state.event = null; state.photos = []; state.me = ''; state.isHost = false;
+
+  const rest = getSessions();
+  sync('ok');
+  toast('Album supprimé.');
+  if(rest.length) switchTo(rest[0].event.id); else goHome();
+});
+
 $('#btn-copy-code').addEventListener('click', async () => {
   if(!state.event) return;
   try{ await navigator.clipboard.writeText(state.event.code); toast('Code copié 📋'); }
@@ -1990,6 +2119,7 @@ async function boot(){
   $$('#qual-row .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === state.quality)));
 
   const ok = initSupabase();
+  paintLocalBar();
   if(!ok) sync('off');
   probe();
 
