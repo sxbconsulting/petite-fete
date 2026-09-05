@@ -794,6 +794,12 @@ body.haslocal #app{padding-top:34px}
         <button class="btn ghost" id="btn-copy-code" style="text-align:center">Copier le code 📋</button>
       </div>
 
+      <div class="card hidden" id="local-warn">
+        <p class="eyebrow">Album non partageable</p>
+        <p class="note" style="margin-top:6px">Cet album a été créé sans synchronisation : son code n'existe que sur ce téléphone. Personne ne peut le rejoindre.</p>
+        <p class="note" style="margin-top:8px"><b>Pour un album partageable :</b> réactive la synchro avec le lien du bandeau en haut, puis crée un nouvel album.</p>
+      </div>
+
       <div class="card" id="set-sess-card">
         <p class="eyebrow">Mes albums</p>
         <div id="set-sessions"></div>
@@ -828,7 +834,7 @@ body.haslocal #app{padding-top:34px}
       <button class="btn ghost" id="btn-howto">Comment ça marche 📸</button>
       <button class="btn ghost" id="btn-show-intro">Pourquoi cette app existe 💛</button>
       <button class="btn ghost" id="btn-leave">Quitter cet événement</button>
-      <p class="note" style="text-align:center;padding-bottom:20px">Petite Fête · album partagé</p>
+      <p class="note" style="text-align:center;padding-bottom:20px">Petite Fête · version <b id="ver">—</b></p>
     </div>
   </section>
 
@@ -940,6 +946,7 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 /* ========================= CONFIG ========================= */
+const APP_VERSION = "2.4";   // 2.4 = correction récursion touchSession + réactivation fiable
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
 
@@ -990,7 +997,7 @@ function dropSession(id){
 function touchSession(){
   if(!state.event) return;
   saveSession(state.event, state.me, state.isHost);
-  touchSession();
+  lsSet(K.EV, { event: state.event, me: state.me, isHost: state.isHost });
 }
 
 function cachePhotos(){
@@ -1153,6 +1160,8 @@ function goHome(){
   setSky('home');
   showHomeBlock('home');
   renderSessions();
+  const lw = $('#local-warn');
+  if(lw) lw.classList.toggle('hidden', !String(e.id).startsWith('local-'));
 }
 
 function goTab(tab){
@@ -1586,15 +1595,25 @@ function paintLocalBar(){
   $('#localbar').classList.toggle('hidden', !off);
   document.body.classList.toggle('haslocal', off);
 }
-$('#localbar').addEventListener('click', ev => {
+$('#localbar').addEventListener('click', async ev => {
   if(ev.target.tagName !== 'B') return;
   lsDel(K.SKIP);
-  if(initSupabase()){
+  if(!initSupabase()){
+    lsSet(K.SKIP, "1");
+    toast("Connexion impossible. Vérifie ton réseau puis réessaie.", 5000);
+    return;
+  }
+  sync('busy');
+  try{
+    const { error } = await sb.from('once_events').select('id').limit(1);
+    if(error) throw error;
     paintLocalBar();
-    toast('Synchronisation réactivée ✓');
-    probe();
-  } else {
-    toast("Impossible de se connecter. Vérifie ta connexion.", 4000);
+    sync('ok');
+    toast("Synchronisation réactivée ✓ Crée un nouvel album pour le partager.", 6000);
+    render();
+  }catch(err){
+    sb = null; lsSet(K.SKIP, "1"); paintLocalBar(); sync('off');
+    toast(explainError(err), 6000);
   }
 });
 
@@ -2117,6 +2136,9 @@ async function boot(){
   state.quality = lsGet(K.QUAL, 'max') || 'max';
   $$('#ratio-row .rt').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.ratio === state.ratio)));
   $$('#qual-row .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.q === state.quality)));
+
+  const v = $('#ver'); if(v) v.textContent = APP_VERSION;
+  console.log('[Petite Fête] version ' + APP_VERSION);
 
   const ok = initSupabase();
   paintLocalBar();
