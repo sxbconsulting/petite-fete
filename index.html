@@ -689,6 +689,16 @@ body.haslocal #app{padding-top:34px}
           <p class="note">Les photos restent cachées jusqu'à cette heure, comme une pellicule à développer.</p>
         </div>
 
+        <label class="fl-lb">Poses par invité</label>
+        <div class="chips" id="limit-chips">
+          <button class="chip" data-limit="5" aria-pressed="false">5</button>
+          <button class="chip" data-limit="10" aria-pressed="false">10</button>
+          <button class="chip" data-limit="24" aria-pressed="false">24 📷</button>
+          <button class="chip" data-limit="36" aria-pressed="false">36</button>
+          <button class="chip" data-limit="0" aria-pressed="true">∞ Illimité</button>
+        </div>
+        <p class="note">Comme un appareil jetable : chacun choisit ses moments au lieu de mitrailler. Photos et vidéos comptent chacune pour une pose.</p>
+
         <button class="btn gold" id="btn-create">Créer l'album 🎉</button>
       </div>
       <button class="btn ghost" data-go="home">← Retour</button>
@@ -808,6 +818,18 @@ body.haslocal #app{padding-top:34px}
         <button class="btn ghost" id="btn-rename">Renommer cet album ✏️</button>
         <button class="btn danger" id="btn-delete">Supprimer cet album 🗑️</button>
         <p class="note" id="del-note">La suppression efface l'album et toutes ses photos, pour tout le monde.</p>
+      </div>
+
+      <div class="card">
+        <p class="eyebrow">Poses par invité</p>
+        <p class="note" id="lim-info" style="margin-top:6px">—</p>
+        <div class="chips hidden" id="set-limit-chips" style="margin-top:10px">
+          <button class="chip" data-limit="5" aria-pressed="false">5</button>
+          <button class="chip" data-limit="10" aria-pressed="false">10</button>
+          <button class="chip" data-limit="24" aria-pressed="false">24 📷</button>
+          <button class="chip" data-limit="36" aria-pressed="false">36</button>
+          <button class="chip" data-limit="0" aria-pressed="false">∞ Illimité</button>
+        </div>
       </div>
 
       <div class="card">
@@ -946,7 +968,7 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 /* ========================= CONFIG ========================= */
-const APP_VERSION = "2.4";   // 2.4 = correction récursion touchSession + réactivation fiable
+const APP_VERSION = "2.5";   // 2.5 = limite de poses par invité (ou illimité)
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
 
@@ -971,6 +993,7 @@ let state = {
   lbIndex: 0,
   type: 'birthday',
   revealMode: 'immediate',
+  limit: 0,             // poses par invité, 0 = illimité
   ratio: 'free',        // free | 1:1 | 4:3 | 9:16
   quality: 'max'        // hd 1600 | max 2560 | ultra 3840
 };
@@ -1335,7 +1358,8 @@ async function createEvent(payload){
       child_name: payload.childName,
       host_name: payload.hostName,
       reveal_mode: payload.revealMode,
-      reveal_at: payload.revealAt
+      reveal_at: payload.revealAt,
+      ...(payload.photoLimit ? { photo_limit: payload.photoLimit } : {})
     }).select().single();
     if(!error && data) return mapEvent(data);
     if(error && !/duplicate|unique/i.test(error.message || '')) throw error;
@@ -1347,7 +1371,8 @@ function mapEvent(row){
   return {
     id: row.id, code: row.code, eventName: row.event_name, eventType: row.event_type,
     childName: row.child_name, hostName: row.host_name,
-    revealMode: row.reveal_mode, revealAt: row.reveal_at, isClosed: !!row.is_closed
+    revealMode: row.reveal_mode, revealAt: row.reveal_at, isClosed: !!row.is_closed,
+    photoLimit: row.photo_limit || 0
   };
 }
 
@@ -1447,12 +1472,28 @@ function render(){
 
   // état fermé
   const closed = !!e.isClosed;
-  $('#btn-shoot').disabled = closed;
-  $('#btn-shoot').style.opacity = closed ? .4 : 1;
-  $('#cam-cap').textContent = closed ? "L'album est terminé 🎉" : 'Prends une photo';
+  const L = poseLimit();
+  const left = remainingFor(state.me);
+  const empty = !closed && L && state.me && left <= 0;
+  ['btn-shoot','btn-video','btn-import'].forEach(id => {
+    const b = $('#'+id); b.disabled = closed || !!empty; b.style.opacity = (closed || empty) ? .4 : 1;
+  });
+
+  if(L && !closed){
+    $('#cam-count').textContent = state.me
+      ? (left + '/' + L + ' pose' + (left > 1 ? 's' : '') + ' 🎞️')
+      : (L + ' poses 🎞️');
+  }
+
+  $('#cam-cap').textContent = closed ? "L'album est terminé 🎉"
+    : empty ? 'Pellicule terminée 🎞️'
+    : 'Prends une photo';
   $('#cam-sub').textContent = closed
     ? 'Merci pour tes souvenirs. La galerie reste ouverte.'
-    : (isRevealLocked() ? 'Elle sera révélée à tout le monde à l\'heure prévue.' : "Elle rejoint l'album de toute la fête.");
+    : empty ? 'Tu as utilisé tes ' + L + ' poses. Profite de la fête !'
+    : (L && state.me ? 'Il te reste ' + left + ' pose' + (left > 1 ? 's' : '') + '. Choisis bien tes moments. '
+                     : (L ? L + ' poses par invité. ' : ''))
+      + (isRevealLocked() ? 'Révélation à l\'heure prévue.' : (L ? '' : "Elle rejoint l'album de toute la fête."));
 
   // strip
   const strip = $('#strip');
@@ -1518,6 +1559,12 @@ function render(){
   $('#del-note').textContent = state.isHost
     ? "La suppression efface l'album et toutes ses photos, pour tout le monde."
     : "L'album sera retiré de ta liste, mais continuera d'exister pour les autres.";
+  const Lr = poseLimit();
+  $('#lim-info').textContent = Lr
+    ? Lr + ' poses par invité' + (state.me ? ' · tu en as utilisé ' + usedBy(state.me) : '') + '.'
+    : 'Illimité : chacun prend autant de photos qu\'il veut.';
+  $('#set-limit-chips').classList.toggle('hidden', !state.isHost);
+  $$('#set-limit-chips .chip').forEach(c => c.setAttribute('aria-pressed', String(+c.dataset.limit === Lr)));
   renderSessions();
 }
 
@@ -1617,6 +1664,25 @@ $('#localbar').addEventListener('click', async ev => {
   }
 });
 
+$('#limit-chips').addEventListener('click', ev => {
+  const c = ev.target.closest('.chip'); if(!c) return;
+  $$('#limit-chips .chip').forEach(x => x.setAttribute('aria-pressed', String(x === c)));
+  state.limit = +c.dataset.limit;
+});
+
+$('#set-limit-chips').addEventListener('click', async ev => {
+  const c = ev.target.closest('.chip'); if(!c || !state.event || !state.isHost) return;
+  const v = +c.dataset.limit;
+  sync('busy');
+  if(sb && !String(state.event.id).startsWith('local-')){
+    const { error } = await sb.from('once_events').update({ photo_limit: v || null }).eq('id', state.event.id);
+    if(error){ sync('off'); toast(explainError(error), 5000); return; }
+  }
+  state.event.photoLimit = v;
+  touchSession(); sync('ok'); render();
+  toast(v ? 'Limite : ' + v + ' poses par invité' : 'Poses illimitées');
+});
+
 $('#type-chips').addEventListener('click', ev => {
   const c = ev.target.closest('.chip'); if(!c) return;
   $$('#type-chips .chip').forEach(x => x.setAttribute('aria-pressed', String(x === c)));
@@ -1657,7 +1723,8 @@ $('#btn-create').addEventListener('click', async () => {
       eventName, childName, hostName,
       eventType: state.type,
       revealMode: state.revealMode,
-      revealAt
+      revealAt,
+      photoLimit: state.limit || 0
     });
     state.event = ev; state.me = hostName; state.isHost = true;
     saveSession(ev, hostName, true);
@@ -1772,9 +1839,26 @@ $('#ratio-row').addEventListener('click', ev => {
   lsSet(K.RATIO, state.ratio);
 });
 
+/* --- limite de poses --- */
+function poseLimit(){ return (state.event && state.event.photoLimit) || 0; }
+function usedBy(name){
+  if(!name) return 0;
+  const k = name.trim().toLowerCase();
+  return state.photos.filter(p => (p.taken_by || '').trim().toLowerCase() === k).length;
+}
+// Infinity si illimité
+function remainingFor(name){
+  const L = poseLimit();
+  return L ? Math.max(0, L - usedBy(name)) : Infinity;
+}
+function outOfPoses(name){
+  toast('Pellicule terminée 🎞️ Tu as utilisé tes ' + poseLimit() + ' poses.', 4500);
+}
+
 /* --- capture --- */
 function openPicker(inputId){
   if(state.event && state.event.isClosed){ toast('L\'album est terminé 🎉'); return; }
+  if(state.me && remainingFor(state.me) <= 0){ outOfPoses(state.me); return; }
   const el = $('#' + inputId); el.value = ''; el.click();
 }
 $('#btn-shoot').addEventListener('click',  () => openPicker('file-in'));
@@ -1822,9 +1906,15 @@ $('#file-lib').addEventListener('change', async ev => {
   if(!files.length) return;
   if(files.length === 1){ handleFile(files[0]); return; }
   if(!state.me){ handleFile(files[0]); return; }   // besoin du prénom au moins une fois
-  toast('Envoi de ' + files.length + ' fichiers…', 4000);
+  const left = remainingFor(state.me);
+  if(left <= 0){ outOfPoses(state.me); return; }
+  let batch = files;
+  if(files.length > left){
+    batch = files.slice(0, left);
+    toast('Il te reste ' + left + ' pose' + (left > 1 ? 's' : '') + ' : seuls les ' + left + ' premiers fichiers partent.', 5000);
+  } else toast('Envoi de ' + files.length + ' fichiers…', 4000);
   let ok = 0;
-  for(const f of files){
+  for(const f of batch){
     try{
       const isVid = (f.type||'').startsWith('video/');
       const m = isVid ? await processVideo(f) : await processPhoto(f, state.ratio, state.quality);
@@ -1832,7 +1922,7 @@ $('#file-lib').addEventListener('change', async ev => {
       ok++; render();
     }catch(e){ console.error(e); }
   }
-  toast(ok + '/' + files.length + ' envoyés ✓');
+  toast(ok + '/' + batch.length + ' envoyés ✓');
 });
 
 $('#rx-row').addEventListener('click', ev => {
@@ -1895,6 +1985,7 @@ $('#btn-send').addEventListener('click', async () => {
   if(!state.pending) return;
   const name = $('#in-prevname').value.trim() || state.me;
   if(!name){ toast('Ajoute ton prénom.'); $('#in-prevname').focus(); return; }
+  if(remainingFor(name) <= 0){ outOfPoses(name); closePreview(); render(); return; }
   if(name !== state.me){
     state.me = name;
     touchSession();
@@ -1911,7 +2002,8 @@ $('#btn-send').addEventListener('click', async () => {
     sync('off');
     console.error('[Petite Fête] envoi', err);
     const m = (err && err.message) || '';
-    if(/Bucket not found|does not exist/i.test(m)) toast("Bucket 'fete-media' absent — exécute la migration V2.", 6000);
+    if(/Bucket not found/i.test(m)) toast("Bucket 'fete-media' absent — exécute la migration V2.", 6000);
+    else if(/column .* does not exist/i.test(m)) toast("Colonnes manquantes — exécute la migration V2.", 6000);
     else if(/row-level security|policy/i.test(m))  toast("Policies Storage manquantes — voir migration V2.", 6000);
     else if(/exceeded the maximum|too large|Payload/i.test(m)) toast("Fichier trop lourd (max 100 Mo).", 5000);
     else toast("Envoi impossible : " + (m || 'erreur inconnue'), 6000);
