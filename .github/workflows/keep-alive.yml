@@ -13,31 +13,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Supabase REST
+        shell: bash
         env:
-          URL: ${{ secrets.SUPABASE_URL }}
-          KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          RAW_URL: ${{ secrets.SUPABASE_URL }}
+          RAW_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
+          set +e   # on gère les erreurs nous-mêmes, pas d'arrêt brutal
+
+          # Nettoyage : espaces, retours à la ligne, slash final
+          URL=$(printf '%s' "$RAW_URL" | tr -d '[:space:]')
+          KEY=$(printf '%s' "$RAW_KEY" | tr -d '[:space:]')
+          URL="${URL%/}"
+
           if [ -z "$URL" ] || [ -z "$KEY" ]; then
-            echo "::error::Secrets SUPABASE_URL ou SUPABASE_ANON_KEY absents."
-            echo "Settings > Secrets and variables > Actions > New repository secret"
+            echo "::error::Secret manquant. Settings > Secrets and variables > Actions."
+            echo "SUPABASE_URL fourni      : $([ -n "$URL" ] && echo oui || echo NON)"
+            echo "SUPABASE_ANON_KEY fourni : $([ -n "$KEY" ] && echo oui || echo NON)"
             exit 1
           fi
 
-          # on retire un éventuel slash final
-          BASE="${URL%/}"
+          HOST=$(printf '%s' "$URL" | sed -E 's#^https?://##; s#/.*$##')
+          echo "Hote visé          : $HOST"
+          echo "Longueur de la clé : ${#KEY} caractères (attendu ~200)"
 
-          CODE=$(curl -sS -o /tmp/out.txt -w "%{http_code}" \
-            "$BASE/rest/v1/once_events?select=id&limit=1" \
+          # 1) Le nom d'hôte existe-t-il ?
+          if ! getent hosts "$HOST" >/dev/null 2>&1; then
+            echo "::error::Nom d'hote introuvable : $HOST"
+            echo "Le projet n'existe pas, a été supprimé, ou l'URL est erronée."
+            echo "Vérifie le ref dans la barre d'adresse du dashboard :"
+            echo "  https://supabase.com/dashboard/project/<REF>"
+            exit 1
+          fi
+          echo "DNS OK"
+
+          # 2) Requête REST
+          CODE=$(curl -sS --max-time 30 -o /tmp/out.txt -w "%{http_code}" \
+            "$URL/rest/v1/once_events?select=id&limit=1" \
             -H "apikey: $KEY" \
             -H "Authorization: Bearer $KEY")
+          CURL_RC=$?
+
+          if [ "$CURL_RC" -ne 0 ]; then
+            echo "::error::Echec réseau (curl code $CURL_RC)."
+            exit 1
+          fi
 
           echo "HTTP $CODE"
-          head -c 400 /tmp/out.txt; echo
+          head -c 400 /tmp/out.txt 2>/dev/null; echo
 
           case "$CODE" in
-            200) echo "✅ Projet actif, ping enregistré." ;;
-            401|403) echo "::error::Clé anon invalide. Vérifie le secret SUPABASE_ANON_KEY."; exit 1 ;;
-            404) echo "::error::Table once_events introuvable, ou URL incorrecte."; exit 1 ;;
-            000) echo "::error::Injoignable — projet en pause ? Restaure-le à la main une fois."; exit 1 ;;
+            200) echo "Projet actif, ping enregistré."; exit 0 ;;
+            401|403) echo "::error::Clé anon refusée. Recopie-la depuis Settings > API Keys > onglet Legacy."; exit 1 ;;
+            404) echo "::error::Table once_events introuvable. Exécute la migration SQL."; exit 1 ;;
             *)   echo "::error::Réponse inattendue ($CODE)."; exit 1 ;;
           esac
