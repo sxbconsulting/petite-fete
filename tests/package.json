@@ -8,7 +8,8 @@
   "private": "true",
   "devDependencies": {
     "acorn": "^8.19.0",
-    "puppeteer": "^25.14.0"
+    "puppeteer": "^25.14.0",
+    "qrcode-generator": "^1.4.4"
   },
   "allowScripts": {
     "puppeteer@25.14.0": true

@@ -16,6 +16,23 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const INDEX = join(HERE, '..', 'index.html');
 const OUT = join(HERE, 'artifacts');
 const ORIGIN = 'http://petite-fete.test/';
+const QR_LIB = readFileSync(join(HERE, 'node_modules', 'qrcode-generator', 'qrcode.js'), 'utf8');
+
+// Faux Supabase, pour le parcours « invité arrivé par le lien » : une seule fête FETE-TEST, aucune photo
+const FAKE_EVENT = { id: 'ev-test', code: 'FETE-TEST', event_name: 'Lana 🎂', event_type: 'birthday',
+  host_name: 'Billal', reveal_mode: 'immediate', reveal_at: null, is_closed: false, photo_limit: null };
+const FAKE_SUPABASE = `window.supabase = { createClient: () => {
+  const ev = ${JSON.stringify(FAKE_EVENT)};
+  const from = table => {
+    const row = table === 'once_events' ? ev : null, c = {};
+    ['select','eq','order','limit','insert','update','delete'].forEach(m => c[m] = () => c);
+    c.single = c.maybeSingle = () => Promise.resolve({ data: row, error: null });
+    c.then = (ok, ko) => Promise.resolve({ data: row ? [row] : [], error: null }).then(ok, ko);
+    return c;
+  };
+  return { from, channel: () => ({ on() { return this; }, subscribe() { return this; } }), removeChannel() {},
+    storage: { from: () => ({ upload: async () => ({ error: null }), getPublicUrl: () => ({ data: { publicUrl: '' } }), remove: async () => ({}) }) } };
+} };`;
 mkdirSync(OUT, { recursive: true });
 
 const html = readFileSync(INDEX, 'utf8');
@@ -76,9 +93,11 @@ async function frenchLeftovers(page) {
   return [...new Set(found)].filter(s => FR_RE.test(s) && !FR_ALLOW.some(a => s.includes(a)));
 }
 
-async function journey(lang, browser) {
-  console.log(`\n3. Parcours ${lang.toUpperCase()}`);
-  const where = 'parcours ' + lang;
+// mode 'local' : l'organisateur crée et utilise un album hors ligne
+// mode 'lien'  : un invité ouvre ?code=… et rejoint la fête (Supabase simulé)
+async function journey(lang, browser, mode = 'local') {
+  console.log(`\n3. Parcours ${lang.toUpperCase()} — ${mode === 'lien' ? 'invité par lien' : 'organisateur, mode local'}`);
+  const where = `parcours ${lang} ${mode}`;
   const page = await browser.newPage();
   await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
 
@@ -86,11 +105,15 @@ async function journey(lang, browser) {
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => { if (m.type() === 'error' && /Petite Fête/.test(m.text())) errors.push('console: ' + m.text()); });
 
-  // réseau coupé : seule la page elle-même est servie → mode local, rapide et reproductible
+  // réseau coupé : seuls la page, la librairie QR (copie locale) et, en mode lien, le faux Supabase sont servis
   await page.setRequestInterception(true);
-  page.on('request', r => r.url() === ORIGIN
-    ? r.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: html })
-    : r.abort());
+  page.on('request', r => {
+    const u = new URL(r.url()), js = body => r.respond({ status: 200, contentType: 'text/javascript', body });
+    if (u.origin + u.pathname === ORIGIN) r.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: html });
+    else if (u.pathname.includes('/qrcode-generator@')) js(QR_LIB);
+    else if (mode === 'lien' && u.pathname.includes('/@supabase/supabase-js')) js(FAKE_SUPABASE);
+    else r.abort();
+  });
 
   // confirm() → oui ; prompt() → nouveau nom
   const NEW_NAME = lang === 'en' ? 'Renamed party' : 'Fête renommée';
@@ -101,12 +124,12 @@ async function journey(lang, browser) {
       localStorage.clear(); localStorage.setItem('once_lang', l); sessionStorage.setItem('seeded', '1');
     }
   }, lang);
-  await page.goto(ORIGIN, { waitUntil: 'domcontentloaded' });
+  await page.goto(mode === 'lien' ? ORIGIN + '?code=fete-test' : ORIGIN, { waitUntil: 'domcontentloaded' });
 
   const leftovers = new Set();
   const visible = sel => page.$eval(sel, el => el.checkVisibility()).catch(() => false);
   const text = sel => page.$eval(sel, el => el.textContent.trim());
-  const shot = name => page.screenshot({ path: join(OUT, `${lang}-${name}.png`) });
+  const shot = name => page.screenshot({ path: join(OUT, `${lang}-${mode}-${name}.png`) });
   const step = async (name, fn) => {
     try { await fn(); pass(name); }
     catch (e) { fail(where, `${name} : ${e.message}`); }
@@ -116,6 +139,31 @@ async function journey(lang, browser) {
   const expect = (cond, msg) => { if (!cond) throw new Error(msg); };
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
+  if (mode === 'lien') {
+    await step('ouverture du lien', async () => {
+      expect(!(await visible('#view-intro')), 'l\'intro s\'affiche alors que l\'invité arrive par un lien');
+      expect(await visible('#form-join'), 'formulaire « Rejoindre » non affiché');
+      expect((await page.$eval('#in-code', el => el.value)) === 'FETE-TEST', 'code non pré-rempli');
+      await page.waitForSelector('#join-found:not(.hidden)', { timeout: 3000 });
+      expect((await text('#join-title')).includes('Lana 🎂'), 'nom de la fête absent');
+      expect(!page.url().includes('code='), 'le ?code= reste dans l\'adresse');
+    });
+    await step('entrée dans la fête', async () => {
+      await page.type('#in-photog', 'Sarah');
+      await page.click('#btn-join');
+      await wait(300);
+      expect(await visible('#view-camera'), 'vue appareil non visible');
+      expect((await text('#cam-evname')) === 'Lana 🎂', 'mauvais album');
+      await page.waitForSelector('#howto:not(.hidden)', { timeout: 2000 });
+      await page.click('#ht-next'); await wait(100); await page.click('#ht-next');
+    });
+    await step('QR code dans les réglages', async () => {
+      await page.click('#tabbar [data-tab="settings"]');
+      await wait(200);
+      expect(await visible('#qr-settings svg'), 'QR code absent des réglages');
+      expect(await visible('#btn-share-set'), 'bouton « Partager le lien » absent');
+    });
+  } else {
   await step('intro affichée', async () => {
     expect(await visible('#view-intro'), 'intro non visible');
     for (let i = 0; i < 3; i++) { await page.click('#btn-intro-next'); await wait(150); }
@@ -130,6 +178,7 @@ async function journey(lang, browser) {
     await page.click('#btn-create');
     await page.waitForFunction(() => /^FETE-[A-Z0-9]{4}$/.test(document.querySelector('#out-code').textContent), { timeout: 3000 });
     expect(await visible('#block-code'), 'code non affiché');
+    expect(!(await visible('#qr-created')), 'QR affiché pour un album local, que personne ne peut rejoindre');
   });
 
   await step('appareil photo', async () => {
@@ -195,6 +244,7 @@ async function journey(lang, browser) {
     await page.click('#form-create [data-go="home"]');
     expect((await page.$$('#home-sessions .sess')).length === 1, 'album absent de « Mes albums »');
   });
+  }
 
   const toastTxt = await text('#toast');
   if (/^(Erreur|Error)/.test(toastTxt)) errors.push('toast: ' + toastTxt);
@@ -215,8 +265,10 @@ try {
   await p.screenshot({ path: join(OUT, 'fixture.jpg'), type: 'jpeg' });
   await p.close();
 
-  await journey('en', browser);
-  await journey('fr', browser);
+  for (const lang of ['en', 'fr']) {
+    await journey(lang, browser, 'local');
+    await journey(lang, browser, 'lien');
+  }
 } finally {
   await browser.close();
 }

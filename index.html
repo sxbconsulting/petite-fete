@@ -86,6 +86,7 @@ create policy "fete delete" on storage.objects for delete
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <style>
 :root{
   --ink:#3a2e52; --ink-soft:#7a6f96;
@@ -224,6 +225,8 @@ body[data-sky="night"] .btn.ghost{color:#cfc4ee}
   margin:8px 0 4px;
 }
 .codebox .hint{font-size:13px;color:var(--ink-soft)}
+.qr{display:grid;place-items:center;margin:12px auto 8px}
+.qr svg{width:176px;height:176px;border-radius:14px;display:block}
 
 /* ---------- HEADER ÉVÉNEMENT ---------- */
 .ev-head{
@@ -721,9 +724,10 @@ body.haslocal #app{padding-top:34px}
       <div class="codebox">
         <p class="eyebrow">Le code de la fête</p>
         <div class="cd" id="out-code">FETE-····</div>
-        <p class="hint">Partage ce code avec tes invités !</p>
+        <div class="qr hidden" id="qr-created" role="img" aria-label="QR code pour rejoindre la fête"></div>
+        <p class="hint">Tes invités scannent le QR code ou entrent le code.</p>
       </div>
-      <button class="btn mint" id="btn-share">Partager le code 📤</button>
+      <button class="btn mint" id="btn-share">Partager le lien 📤</button>
       <button class="btn" id="btn-enter-created">Ouvrir l'appareil photo 📸</button>
     </div>
 
@@ -813,7 +817,8 @@ body.haslocal #app{padding-top:34px}
           <span class="note" style="margin:0">Code à partager</span>
           <span class="mono-code" id="set-code">—</span>
         </div>
-        <button class="btn ghost" id="btn-copy-code" style="text-align:center">Copier le code 📋</button>
+        <div class="qr hidden" id="qr-settings" role="img" aria-label="QR code pour rejoindre la fête"></div>
+        <button class="btn ghost" id="btn-share-set" style="text-align:center">Partager le lien 📤</button>
       </div>
 
       <div class="card hidden" id="local-warn">
@@ -1034,8 +1039,9 @@ const EN = {
 "Créer l'album 🎉": "Create the album 🎉",
 "← Retour": "← Back",
 "Le code de la fête": "Party code",
-"Partage ce code avec tes invités !": "Share this code with your guests!",
-"Partager le code 📤": "Share the code 📤",
+"QR code pour rejoindre la fête": "QR code to join the party",
+"Tes invités scannent le QR code ou entrent le code.": "Your guests scan the QR code or enter the code.",
+"Partager le lien 📤": "Share the link 📤",
 "Ouvrir l'appareil photo 📸": "Open the camera 📸",
 "Code de la fête": "Party code",
 "Chercher la fête 🔎": "Find the party 🔎",
@@ -1055,7 +1061,6 @@ const EN = {
 "⚙️ Réglages": "⚙️ Settings",
 "L'événement": "The event",
 "Code à partager": "Code to share",
-"Copier le code 📋": "Copy the code 📋",
 "Album non partageable": "This album can't be shared",
 "Cet album a été créé sans synchronisation : son code n'existe que sur ce téléphone. Personne ne peut le rejoindre.": "This album was created without sync: its code only exists on this phone. Nobody can join it.",
 "Pour un album partageable :": "For a shareable album:",
@@ -1167,8 +1172,8 @@ const EN = {
 "Choisis l'heure de la révélation.": "Pick the reveal time.",
 "Création…": "Creating…",
 "Tu es en mode local : cet album ne sera PAS partageable.\n\nCréer quand même ?": "You're in local mode: this album will NOT be shareable.\n\nCreate it anyway?",
-"{e} — rejoins l'album photo avec le code {c}": "{e} — join the photo album with the code {c}",
-"Code copié 📋": "Code copied 📋",
+"{e} — rejoins l'album photo : {u} (code {c})": "{e} — join the photo album: {u} (code {c})",
+"Lien copié 📋": "Link copied 📋",
 "Code :": "Code:",
 "Le code ressemble à FETE-AB2K.": "The code looks like FETE-AB2K.",
 "Mode local : impossible de rejoindre une fête.": "Local mode: you can't join a party.",
@@ -1269,7 +1274,8 @@ window.addEventListener('unhandledrejection', e => {
 });
 
 /* ========================= CONFIG ========================= */
-const APP_VERSION = "2.8";   // 2.8 = ✕ des overlays plus caché par le bandeau mode local ; « inconnue », ko/Mo traduits
+const APP_VERSION = "2.9";   // 2.9 = lien de partage ?code=FETE-XXXX + QR code (création et réglages)
+                             // 2.8 = ✕ des overlays plus caché par le bandeau mode local ; « inconnue », ko/Mo traduits
                              // 2.7 = version anglaise (réglages : 🇫🇷 / 🇺🇸)
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
@@ -1391,6 +1397,42 @@ function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&
 // mot au singulier ou pluriel, traduit (FR : 0 et 1 au singulier ; EN : seul 1 au singulier)
 function pw(n, one, many){ return t((LANG === 'en' ? n !== 1 : n > 1) ? many : one); }
 function plural(n, one, many){ return n + ' ' + pw(n, one, many); }
+
+/* ---------- LIEN DE PARTAGE + QR ---------- */
+// "ab2k", "FETE-ab2k", "feteAB2K" → "FETE-AB2K" ; null si ce n'est pas un code valide
+function normCode(s){
+  let c = String(s || '').trim().toUpperCase();
+  if(c && !c.startsWith('FETE-')) c = 'FETE-' + c.replace(/^FETE/,'');
+  return /^FETE-[A-Z0-9]{4}$/.test(c) ? c : null;
+}
+function shareUrl(code){ return location.origin + location.pathname + '?code=' + encodeURIComponent(code); }
+function isLocalEv(e){ return !e || String(e.id).startsWith('local-'); }
+
+// QR code du lien ; masqué pour un album local (personne ne peut le rejoindre) ou si la librairie n'a pas chargé
+function paintQR(el, ev){
+  if(!el) return;
+  const ok = !isLocalEv(ev) && typeof window.qrcode === 'function';
+  if(ok && el.dataset.code !== ev.code){
+    try{
+      const q = window.qrcode(0, 'M');
+      q.addData(shareUrl(ev.code)); q.make();
+      el.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2, scalable: true });
+      el.dataset.code = ev.code;
+    }catch(e){ console.warn('[Petite Fête] QR', e); el.dataset.code = ''; el.innerHTML = ''; }
+  }
+  el.classList.toggle('hidden', !ok || !el.innerHTML);
+}
+
+async function shareEvent(ev){
+  if(!ev) return;
+  const txt = t("{e} — rejoins l'album photo : {u} (code {c})", {e:ev.eventName, u:shareUrl(ev.code), c:ev.code});
+  if(navigator.share){
+    try{ await navigator.share({ text: txt }); return; }
+    catch(e){ if(e && e.name === 'AbortError') return; }   // l'utilisateur a fermé la feuille de partage
+  }
+  try{ await navigator.clipboard.writeText(txt); toast(t('Lien copié 📋')); }
+  catch(e){ toast(t('Code : ') + ev.code); }
+}
 
 /* ========================= DÉCOR ========================= */
 function paintDeco(kind){
@@ -1852,6 +1894,8 @@ function render(){
   $('#set-meta').textContent = e.eventName;
   $('#set-evname').textContent = e.eventName + (closed ? ' · ' + t('terminé') + ' 🔒' : '');
   $('#set-code').textContent = e.code;
+  paintQR($('#qr-settings'), e);
+  $('#btn-share-set').classList.toggle('hidden', isLocalEv(e));
   $('#set-people').innerHTML = people.length
     ? people.map(p => '<span>'+esc(p)+'</span>').join('')
     : '<span>'+t('Personne encore')+'</span>';
@@ -2035,6 +2079,7 @@ $('#btn-create').addEventListener('click', async () => {
     lsSet(K.EV, { event: ev, me: hostName, isHost: true });
     lsSet(phKey(ev.id), []);
     $('#out-code').textContent = ev.code;
+    paintQR($('#qr-created'), ev);
     showHomeBlock('code');
     burstConfetti();
     sync(sb ? 'ok' : 'off');
@@ -2046,13 +2091,7 @@ $('#btn-create').addEventListener('click', async () => {
   }
 });
 
-$('#btn-share').addEventListener('click', async () => {
-  const ev = state.event; if(!ev) return;
-  const txt = t("{e} — rejoins l'album photo avec le code {c}", {e:ev.eventName, c:ev.code});
-  if(navigator.share){ try{ await navigator.share({ text: txt }); return; }catch(e){} }
-  try{ await navigator.clipboard.writeText(ev.code); toast(t('Code copié 📋')); }
-  catch(e){ toast(t('Code : ') + ev.code); }
-});
+$('#btn-share').addEventListener('click', () => shareEvent(state.event));
 
 $('#btn-enter-created').addEventListener('click', () => {
   enterEvent(state.event, state.me, true);
@@ -2063,9 +2102,8 @@ $('#in-code').addEventListener('input', ev => {
 });
 
 $('#btn-lookup').addEventListener('click', async () => {
-  let code = $('#in-code').value.trim().toUpperCase();
-  if(code && !code.startsWith('FETE-')) code = 'FETE-' + code.replace(/^FETE/,'');
-  if(!/^FETE-[A-Z0-9]{4}$/.test(code)){ toast(t('Le code ressemble à FETE-AB2K.')); return; }
+  const code = normCode($('#in-code').value);
+  if(!code){ toast(t('Le code ressemble à FETE-AB2K.')); return; }
   if(!sb){ toast(t('Mode local : impossible de rejoindre une fête.')); return; }
   const btn = $('#btn-lookup'); btn.disabled = true; btn.textContent = t('Recherche…'); sync('busy');
   try{
@@ -2446,11 +2484,7 @@ $('#btn-delete').addEventListener('click', async () => {
   if(rest.length) switchTo(rest[0].event.id); else goHome();
 });
 
-$('#btn-copy-code').addEventListener('click', async () => {
-  if(!state.event) return;
-  try{ await navigator.clipboard.writeText(state.event.code); toast(t('Code copié 📋')); }
-  catch(e){ toast(t('Code : ') + state.event.code); }
-});
+$('#btn-share-set').addEventListener('click', () => shareEvent(state.event));
 
 $('#btn-close-album').addEventListener('click', async () => {
   if(!state.event) return;
@@ -2574,8 +2608,26 @@ async function boot(){
   if(!ok) sync('off');
   probe();
 
+  // Lien de partage ?code=FETE-XXXX : l'invité arrive directement sur la bonne fête, sans l'intro
+  let linkCode = null;
+  try{
+    const qs = new URLSearchParams(location.search);
+    if(qs.has('code')){
+      linkCode = normCode(qs.get('code'));
+      history.replaceState(null, '', location.pathname + location.hash);   // un rechargement ne relance pas la recherche
+    }
+  }catch(e){}
+  const known = linkCode && getSessions().find(x => x.event && x.event.code === linkCode);
+
   const saved = lsGet(K.EV, null) || (getSessions()[0] || null);
-  if(saved && saved.event && saved.event.id){
+  if(known){
+    enterEvent(known.event, known.me, known.isHost);
+  } else if(linkCode){
+    goHome();
+    showHomeBlock('join');
+    $('#in-code').value = linkCode;
+    $('#btn-lookup').click();
+  } else if(saved && saved.event && saved.event.id){
     state.event = saved.event; state.me = saved.me || ''; state.isHost = !!saved.isHost;
     state.photos = lsGet(phKey(state.event.id), []);
     let reopen = false;

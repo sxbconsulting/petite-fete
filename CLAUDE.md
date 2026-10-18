@@ -34,7 +34,7 @@
 
 - **Un seul fichier `index.html`** : HTML + CSS + JavaScript vanilla.
 - **Aucun framework** (React, Vue…), **aucun build**, **aucun npm dans l'app**.
-- Bibliothèques **uniquement par CDN** (actuellement : `@supabase/supabase-js@2` via jsdelivr, Google Fonts).
+- Bibliothèques **uniquement par CDN** (actuellement : `@supabase/supabase-js@2` et `qrcode-generator@1.4.4` via jsdelivr, Google Fonts).
 - Je dois pouvoir modifier et redéployer seul. Une stack que je ne peux pas maintenir est une stack morte.
 - npm/node sont autorisés **pour tes outils de test** (puppeteer, acorn…), jamais dans l'app livrée.
 
@@ -163,6 +163,7 @@ Le plan gratuit met le projet en pause après 7 jours sans requête. Le workflow
 3. **Test de parcours dans un navigateur sans écran** (puppeteer) en anglais puis en français : intro → création d'un album → appareil → galerie → réglages → renommage. Zéro erreur JS ; en anglais, aucun texte français résiduel.
    - Si le téléchargement de Chromium par Playwright est bloqué : `npm install @sparticuz/chromium puppeteer-core` fonctionne.
    - Bloquer le réseau pendant le test (mode local) pour qu'il soit rapide et reproductible.
+   - **Déjà en place :** `cd tests && npm test` (parcours organisateur en mode local + parcours invité par lien avec un faux Supabase). Captures dans `tests/artifacts/`.
 4. Incrémenter **`APP_VERSION`** (affichée en bas des réglages) et décrire le changement dans le commentaire à côté.
 5. Après déploiement : vérifier que la page en ligne contient la nouvelle `APP_VERSION`.
 
@@ -182,7 +183,7 @@ GitHub Pages redéploie en 1 à 3 minutes. Vérifie la version en ligne avant de
 ## 12. Pistes identifiées (non faites — me demander avant)
 
 Classées par rapport valeur/effort :
-1. **Lien de partage direct** `?code=FETE-XXXX` (+ QR code) : supprime la saisie du code, la friction n°1 probable
+1. ~~**Lien de partage direct** `?code=FETE-XXXX` (+ QR code)~~ : **fait en v2.9** (QR à la création et dans les réglages ; l'invité arrive directement sur « Tu rejoins », sans l'intro)
 2. **Drapeau de langue sur l'accueil** : aujourd'hui un invité anglophone voit l'intro en français avant d'entrer dans un album
 3. **Supprimer une photo** (la sienne ; toutes pour l'organisateur) — penser à supprimer aussi le fichier Storage
 4. **Export ZIP de l'album** à la fermeture — hypothèse de monétisation la moins coûteuse à tester (~3 €). ⚠️ Paiement = Stripe, que je ne maîtrise pas encore
