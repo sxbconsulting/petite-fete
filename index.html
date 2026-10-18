@@ -429,6 +429,18 @@ body[data-sky="night"] .divider{background:rgba(255,255,255,.14)}
 #localbar b{text-decoration:underline;cursor:pointer;white-space:nowrap}
 body.haslocal #app{padding-top:34px}
 
+/* ---------- LANGUE ---------- */
+.lang-row{display:flex;gap:10px;margin-top:10px}
+.lang-btn{
+  flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+  border:2px solid #ece7f5;background:#fbfaff;border-radius:18px;
+  padding:12px 10px;font-size:15px;font-weight:600;color:var(--ink);
+  transition:transform .25s var(--bounce),border-color .2s,background .2s;
+}
+.lang-btn .flag{font-size:22px;line-height:1}
+.lang-btn[aria-pressed="true"]{border-color:var(--ink);background:#fff}
+.lang-btn:active{transform:scale(.94)}
+
 /* ---------- SESSIONS ---------- */
 .sess{
   display:flex;align-items:center;gap:12px;width:100%;text-align:left;
@@ -810,10 +822,19 @@ body.haslocal #app{padding-top:34px}
         <p class="note" style="margin-top:8px"><b>Pour un album partageable :</b> réactive la synchro avec le lien du bandeau en haut, puis crée un nouvel album.</p>
       </div>
 
+      <div class="card">
+        <p class="eyebrow">Langue · Language</p>
+        <div class="lang-row" id="lang-row">
+          <button class="lang-btn" data-lang="fr" aria-pressed="false"><span class="flag">🇫🇷</span>Français</button>
+          <button class="lang-btn" data-lang="en" aria-pressed="false"><span class="flag">🇺🇸</span>English</button>
+        </div>
+      </div>
+
       <div class="card" id="set-sess-card">
         <p class="eyebrow">Mes albums</p>
+        <button class="btn gold" id="btn-new-album" style="margin:10px 0 4px">+ Créer un nouvel album 🎉</button>
         <div id="set-sessions"></div>
-        <button class="btn ghost" id="btn-add-album">+ Rejoindre un autre album</button>
+        <button class="btn ghost" id="btn-add-album">🔑 Rejoindre un album avec un code</button>
         <div class="divider"></div>
         <button class="btn ghost" id="btn-rename">Renommer cet album ✏️</button>
         <button class="btn danger" id="btn-delete">Supprimer cet album 🗑️</button>
@@ -955,20 +976,298 @@ body.haslocal #app{padding-top:34px}
 (function(){
 "use strict";
 
+/* ========================= LANGUE (FR / EN) ========================= */
+// Le dictionnaire a pour clés les textes français : FR = texte d'origine, EN = traduction.
+const LANG_KEY = 'once_lang';
+let LANG = 'fr';
+try{ LANG = localStorage.getItem(LANG_KEY) === 'en' ? 'en' : 'fr'; }catch(e){}
+document.documentElement.lang = LANG;
+
+const EN = {
+"⚠︎ Mode local — tes invités ne peuvent pas rejoindre.": "⚠︎ Local mode — your guests can't join.",
+"Réactiver": "Turn sync back on",
+"Ça vous dit quelque chose ?": "Sound familiar?",
+"Les photos finissent": "The photos end up",
+"éparpillées": "scattered",
+"Un après-midi avec les copains et les enfants. Sept adultes, sept téléphones. Et le soir, personne n'a les photos.": "An afternoon with friends and the kids. Seven adults, seven phones. And by evening, nobody has the photos.",
+"« Tu me les envoies ? » — Oui, oui. Puis on oublie.": "“Can you send them to me?” — Sure, sure. Then everyone forgets.",
+"Comment ça marche": "How it works",
+"Un seul album,": "One album,",
+"pour tout le monde": "for everyone",
+"Tu crées la fête et tu obtiens un code à partager.": "You create the party and get a code to share.",
+"Chaque invité entre le code. Aucune appli à installer.": "Each guest enters the code. Nothing to install.",
+"Les photos arrivent au même endroit, en direct.": "The photos land in one place, live.",
+"Pourquoi cette app existe": "Why this app exists",
+"Née d'un vrai": "Born from a real",
+"agacement": "frustration",
+"Avec ma femme, on organise souvent des après-midi avec nos amis et nos enfants. À chaque fois, la même galère : récupérer les photos des uns et des autres.": "My wife and I often host afternoons with our friends and our kids. Every time, the same hassle: gathering everyone's photos.",
+"Des messages dispersés, des albums partagés que personne n'ouvre, des souvenirs qui restent bloqués dans un téléphone.": "Scattered messages, shared albums nobody opens, memories stuck on someone's phone.",
+"Alors on a fait l'outil qui nous manquait.": "So we built the tool we were missing.",
+"Continuer": "Continue",
+"Passer": "Skip",
+"L'album magique de la fête": "The party's magic album",
+"📸 Nos souvenirs ✨": "📸 Our memories ✨",
+"Chaque invité prend des photos avec son téléphone. Tout le monde les retrouve au même endroit.": "Every guest takes photos with their phone. Everyone finds them in one place.",
+"Créer une fête": "Create a party",
+"Tu organises l'événement": "You're hosting",
+"Rejoindre une fête": "Join a party",
+"Tu as reçu un code": "You got a code",
+"Utiliser sans synchronisation": "Use without sync",
+"Nom de l'événement": "Event name",
+"Anniversaire de Lana 🎂": "Lana's birthday 🎂",
+"Prénom de l'enfant fêté": "Birthday child's first name",
+"Ton prénom": "Your first name",
+"Type de fête": "Party type",
+"🎂 Anniversaire": "🎂 Birthday",
+"🏫 École": "🏫 School",
+"🌸 Fête": "🌸 Party",
+"🎄 Noël": "🎄 Christmas",
+"✨ Autre": "✨ Other",
+"Quand voir les photos ?": "When can people see the photos?",
+"👀 Tout de suite": "👀 Right away",
+"🌙 À la révélation": "🌙 At the reveal",
+"Heure de la révélation": "Reveal time",
+"Les photos restent cachées jusqu'à cette heure, comme une pellicule à développer.": "Photos stay hidden until then, like film waiting to be developed.",
+"Poses par invité": "Shots per guest",
+"∞ Illimité": "∞ Unlimited",
+"Comme un appareil jetable : chacun choisit ses moments au lieu de mitrailler. Photos et vidéos comptent chacune pour une pose.": "Like a disposable camera: everyone picks their moments instead of snapping away. Photos and videos each count as one shot.",
+"Créer l'album 🎉": "Create the album 🎉",
+"← Retour": "← Back",
+"Le code de la fête": "Party code",
+"Partage ce code avec tes invités !": "Share this code with your guests!",
+"Partager le code 📤": "Share the code 📤",
+"Ouvrir l'appareil photo 📸": "Open the camera 📸",
+"Code de la fête": "Party code",
+"Chercher la fête 🔎": "Find the party 🔎",
+"Entrer dans la fête 📸": "Join the party 📸",
+"0 photo 📸": "0 photos 📸",
+"Carré": "Square",
+"Filmer une vidéo": "Record a video",
+"Vidéo": "Video",
+"Prendre une photo": "Take a photo",
+"Importer depuis la galerie": "Import from your library",
+"Importer": "Import",
+"Prends une photo": "Take a photo",
+"Elle rejoint l'album de toute la fête.": "It goes straight into everyone's album.",
+"Derniers souvenirs": "Latest memories",
+"Rien pour l'instant. Lance-toi !": "Nothing yet. Go for it!",
+"🖼️ La galerie": "🖼️ Gallery",
+"⚙️ Réglages": "⚙️ Settings",
+"L'événement": "The event",
+"Code à partager": "Code to share",
+"Copier le code 📋": "Copy the code 📋",
+"Album non partageable": "This album can't be shared",
+"Cet album a été créé sans synchronisation : son code n'existe que sur ce téléphone. Personne ne peut le rejoindre.": "This album was created without sync: its code only exists on this phone. Nobody can join it.",
+"Pour un album partageable :": "For a shareable album:",
+"réactive la synchro avec le lien du bandeau en haut, puis crée un nouvel album.": "turn sync back on with the link in the top banner, then create a new album.",
+"Mes albums": "My albums",
+"+ Créer un nouvel album 🎉": "+ Create a new album 🎉",
+"🔑 Rejoindre un album avec un code": "🔑 Join an album with a code",
+"Renommer cet album ✏️": "Rename this album ✏️",
+"Supprimer cet album 🗑️": "Delete this album 🗑️",
+"La suppression efface l'album et toutes ses photos, pour tout le monde.": "Deleting erases the album and all its photos, for everyone.",
+"Qualité des photos": "Photo quality",
+"Bonne · 1600px": "Good · 1600px",
+"Haute · 2560px": "High · 2560px",
+"Maximale · 4K": "Maximum · 4K",
+"Plus la qualité est haute, plus l'envoi est long. Les vidéos sont toujours envoyées telles quelles.": "The higher the quality, the longer the upload. Videos are always sent as is.",
+"Les photographes": "Photographers",
+"Personne encore": "Nobody yet",
+"Organisateur": "Host",
+"Fermer l'album empêche l'ajout de nouvelles photos. La galerie reste consultable par tout le monde.": "Closing the album stops new photos from being added. Everyone can still view the gallery.",
+"Fermer l'album 🔒": "Close the album 🔒",
+"Comment ça marche 📸": "How it works 📸",
+"Pourquoi cette app existe 💛": "Why this app exists 💛",
+"Quitter cet événement": "Leave this event",
+"Appareil": "Camera",
+"Galerie": "Gallery",
+"Réglages": "Settings",
+"Fermer": "Close",
+"Un exemple · Samedi, 15h": "An example · Saturday, 3 pm",
+"Chacun prend": "Everyone takes",
+"2 ou 3 photos": "2 or 3 photos",
+"Mamie": "Grandma",
+"Personne ne fait le paparazzi. Chacun sort son téléphone deux minutes, puis le range et profite de l'après-midi.": "Nobody plays paparazzi. Everyone pulls out their phone for two minutes, then puts it away and enjoys the afternoon.",
+"Le soir même · 21h": "That same evening · 9 pm",
+"Tout le monde a": "Everyone has",
+"les 10 photos": "all 10 photos",
+"Pas de « tu me les envoies ? ». L'album est déjà complet, et chacun y retrouve les moments qu'il a ratés.": "No more “can you send them to me?”. The album is already complete, and everyone finds the moments they missed.",
+"💡 Le code": "💡 The code",
+"se partage par SMS. Aucune appli à installer pour tes invités.": "is shared by text. Nothing for your guests to install.",
+"Une réaction ?": "A reaction?",
+"Reprendre": "Retake",
+"Envoyer 🚀": "Send 🚀",
+"Photo précédente": "Previous photo",
+"Photo suivante": "Next photo",
+"Photo qui vient d'être prise": "The photo you just took",
+"Photo de la fête": "Party photo",
+"Erreur :": "Error:",
+"⚠︎ hors ligne": "⚠︎ offline",
+"Tables absentes — exécute le SQL de migration dans Supabase.": "Missing tables — run the migration SQL in Supabase.",
+"RLS bloque l'écriture — crée les policies \"allow all\".": "RLS is blocking writes — create the \"allow all\" policies.",
+"Supabase injoignable — projet en pause ou URL incorrecte ?": "Can't reach Supabase — project paused or wrong URL?",
+"Clé anon invalide ou expirée.": "Invalid or expired anon key.",
+"Erreur Supabase :": "Supabase error:",
+"(voir console)": "(see console)",
+"Retour à la fête 📸": "Back to the party 📸",
+"Créer notre album 🎉": "Create our album 🎉",
+"Les photos sont révélées ! 🎉": "The photos are revealed! 🎉",
+"organisateur": "host",
+"Ici": "Here",
+"Ouvrir": "Open",
+"0 souvenir 📸": "0 memories 📸",
+"pose": "shot",
+"poses": "shots",
+"L'album est terminé 🎉": "The album is closed 🎉",
+"Pellicule terminée 🎞️": "Out of film 🎞️",
+"Merci pour tes souvenirs. La galerie reste ouverte.": "Thanks for your memories. The gallery stays open.",
+"Tu as utilisé tes {n} poses. Profite de la fête !": "You've used your {n} shots. Enjoy the party!",
+"Il te reste {n} {w}. Choisis bien tes moments.": "You have {n} {w} left. Choose your moments wisely.",
+"{n} poses par invité.": "{n} shots per guest.",
+"Révélation à l'heure prévue.": "Revealed at the scheduled time.",
+"photo cachée": "hidden photo",
+"photos cachées": "hidden photos",
+"jusqu'à la révélation.": "until the reveal.",
+"Aucune photo pour l'instant. Lance-toi !": "No photos yet. Go for it!",
+"Vidéo de {n}": "Video by {n}",
+"Photo de {n}": "Photo by {n}",
+"un invité": "a guest",
+"Rien encore": "Nothing yet",
+"{a} par {b} 💕": "{a} by {b} 💕",
+"souvenir partagé": "shared memory",
+"souvenirs partagés": "shared memories",
+"personne": "person",
+"personnes": "people",
+"La pellicule se développe": "The film is developing",
+"photo déjà prise": "photo already taken",
+"photos déjà prises": "photos already taken",
+"Tout le monde les découvrira en même temps.": "Everyone will discover them at the same time.",
+"heures": "hours",
+"secondes": "seconds",
+"La galerie est vide": "The gallery is empty",
+"Prends la première photo depuis l'onglet Appareil.": "Take the first photo from the Camera tab.",
+"Invité": "Guest",
+"terminé": "closed",
+"Retirer de mes albums 🗑️": "Remove from my albums 🗑️",
+"L'album sera retiré de ta liste, mais continuera d'exister pour les autres.": "The album will be removed from your list, but will keep existing for everyone else.",
+"{n} poses par invité": "{n} shots per guest",
+"tu en as utilisé {u}": "you've used {u}",
+"Illimité : chacun prend autant de photos qu'il veut.": "Unlimited: everyone takes as many photos as they like.",
+"Album introuvable. Reviens à l'accueil.": "Album not found. Go back to the home screen.",
+"Album :": "Album:",
+"Aucun autre album.": "No other albums.",
+"Mode local : les photos restent sur CE téléphone.\n\nTes invités ne pourront PAS rejoindre tes albums.\n\nContinuer ?": "Local mode: photos stay on THIS phone.\n\nYour guests will NOT be able to join your albums.\n\nContinue?",
+"Mode local activé — album non partageable.": "Local mode on — album not shareable.",
+"Connexion impossible. Vérifie ton réseau puis réessaie.": "Can't connect. Check your network and try again.",
+"Synchronisation réactivée ✓ Crée un nouvel album pour le partager.": "Sync turned back on ✓ Create a new album to share it.",
+"Limite : {n} poses par invité": "Limit: {n} shots per guest",
+"Poses illimitées": "Unlimited shots",
+"Donne un nom à la fête.": "Give the party a name.",
+"Ajoute ton prénom.": "Add your first name.",
+"Choisis l'heure de la révélation.": "Pick the reveal time.",
+"Création…": "Creating…",
+"Tu es en mode local : cet album ne sera PAS partageable.\n\nCréer quand même ?": "You're in local mode: this album will NOT be shareable.\n\nCreate it anyway?",
+"{e} — rejoins l'album photo avec le code {c}": "{e} — join the photo album with the code {c}",
+"Code copié 📋": "Code copied 📋",
+"Code :": "Code:",
+"Le code ressemble à FETE-AB2K.": "The code looks like FETE-AB2K.",
+"Mode local : impossible de rejoindre une fête.": "Local mode: you can't join a party.",
+"Recherche…": "Searching…",
+"Aucune fête avec ce code.": "No party with this code.",
+"🎉 Tu rejoins :": "🎉 You're joining:",
+"Recherche impossible. Vérifie ta connexion.": "Search failed. Check your connection.",
+"Cherche d'abord la fête.": "Find the party first.",
+"Et ensuite ?": "And then?",
+"C'est parti 📸": "Let's go 📸",
+"Pellicule terminée 🎞️ Tu as utilisé tes {n} poses.": "Out of film 🎞️ You've used your {n} shots.",
+"Fichier illisible. Réessaie.": "Can't read this file. Try again.",
+"Il te reste {n} {w} : seuls les {n} premiers fichiers partent.": "You have {n} {w} left: only the first {n} files will be sent.",
+"Envoi de {n} fichiers…": "Sending {n} files…",
+"{a}/{b} envoyés ✓": "{a}/{b} sent ✓",
+"Envoi…": "Sending…",
+"Bucket 'fete-media' absent — exécute la migration V2.": "'fete-media' bucket missing — run migration V2.",
+"Colonnes manquantes — exécute la migration V2.": "Missing columns — run migration V2.",
+"Policies Storage manquantes — voir migration V2.": "Missing Storage policies — see migration V2.",
+"Fichier trop lourd (max 100 Mo).": "File too large (max 100 MB).",
+"Envoi impossible :": "Upload failed:",
+"erreur inconnue": "unknown error",
+"Seul l'organisateur peut renommer.": "Only the host can rename the album.",
+"Nouveau nom de l'album :": "New album name:",
+"Le nom ne peut pas être vide.": "The name can't be empty.",
+"Album renommé ✓": "Album renamed ✓",
+"Retirer « {e} » de TES albums ?\n\nL'album continuera d'exister pour les autres.": "Remove “{e}” from YOUR albums?\n\nThe album will keep existing for everyone else.",
+"Album retiré de ta liste.": "Album removed from your list.",
+"SUPPRIMER « {e} » ?": "DELETE “{e}”?",
+"{n} souvenir(s) seront effacés": "{n} memory(ies) will be erased",
+"de ce téléphone.": "from this phone.",
+"pour TOUS les participants.": "for ALL participants.",
+"Cette action est définitive.": "This cannot be undone.",
+"Dernière confirmation : supprimer définitivement ?": "Final confirmation: delete permanently?",
+"Album supprimé.": "Album deleted.",
+"Fermer l'album ? Plus personne ne pourra ajouter de photos.": "Close the album? Nobody will be able to add photos anymore.",
+"Fermeture impossible. Réessaie.": "Couldn't close the album. Try again.",
+"Album fermé 🔒 La galerie reste ouverte.": "Album closed 🔒 The gallery stays open.",
+"Qualité :": "Quality:",
+"Quitter cet album ? Tu pourras y revenir avec le code.": "Leave this album? You can come back with the code."
+};
+
+// t('texte FR', {n:3}) → texte dans la langue active, variables {n} remplacées
+function t(s, vars){
+  if(s == null) return s;
+  let out = String(s);
+  if(LANG === 'en'){
+    const m = out.match(/^(\s*)([\s\S]*?)(\s*)$/);
+    if(Object.prototype.hasOwnProperty.call(EN, m[2])) out = m[1] + EN[m[2]] + m[3];
+  }
+  if(vars) out = out.replace(/\{(\w+)\}/g, (_, k) => vars[k] != null ? vars[k] : '');
+  return out;
+}
+
+// Traduit les textes fixes du HTML (textes, placeholders, libellés d'accessibilité)
+function translateDOM(root){
+  if(LANG !== 'en' || !root) return;
+  const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: n => (n.parentNode && /^(SCRIPT|STYLE)$/.test(n.parentNode.nodeName))
+      ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+  });
+  const nodes = [];
+  while(tw.nextNode()) nodes.push(tw.currentNode);
+  nodes.forEach(n => { const v = t(n.nodeValue); if(v !== n.nodeValue) n.nodeValue = v; });
+  const els = root.querySelectorAll ? root.querySelectorAll('[placeholder],[aria-label],[alt]') : [];
+  els.forEach(el => ['placeholder','aria-label','alt'].forEach(a => {
+    if(el.hasAttribute(a)){ const v = t(el.getAttribute(a)); if(v !== el.getAttribute(a)) el.setAttribute(a, v); }
+  }));
+}
+if(LANG === 'en'){
+  translateDOM(document.body);
+  document.title = t(document.title);
+  // filet de sécurité : tout HTML injecté plus tard est traduit aussi
+  new MutationObserver(muts => muts.forEach(m => m.addedNodes.forEach(n => {
+    if(n.nodeType === 3){ const v = t(n.nodeValue); if(v !== n.nodeValue) n.nodeValue = v; }
+    else if(n.nodeType === 1) translateDOM(n);
+  }))).observe(document.body, { childList: true, subtree: true });
+}
+
+function setLang(l){
+  if(l === LANG) return;
+  try{ localStorage.setItem(LANG_KEY, l); localStorage.setItem('once_open_settings', '1'); }catch(e){}
+  location.reload();
+}
+
 /* ========================= DIAGNOSTIC ========================= */
 // Toute erreur JS non rattrapée devient visible, au lieu d'un bouton muet
 window.addEventListener('error', e => {
   console.error('[Petite Fête] erreur', e.error || e.message);
-  try{ toast('Erreur : ' + (e.message || 'inconnue'), 7000); }catch(_){}
+  try{ toast(t('Erreur : ') + (e.message || t('erreur inconnue')), 7000); }catch(_){}
 });
 window.addEventListener('unhandledrejection', e => {
   const m = (e.reason && (e.reason.message || e.reason)) || 'inconnue';
   console.error('[Petite Fête] promesse rejetée', e.reason);
-  try{ toast('Erreur : ' + m, 7000); }catch(_){}
+  try{ toast(t('Erreur : ') + m, 7000); }catch(_){}
 });
 
 /* ========================= CONFIG ========================= */
-const APP_VERSION = "2.5";   // 2.5 = limite de poses par invité (ou illimité)
+const APP_VERSION = "2.7";   // 2.7 = version anglaise (réglages : 🇫🇷 / 🇺🇸)
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
 
@@ -1051,7 +1350,7 @@ let syncTimer = null;
 function sync(kind){ // 'busy' | 'ok' | 'off'
   const el = $('#sync');
   if(!el) return;
-  el.textContent = kind === 'busy' ? '⟳' : kind === 'ok' ? '✓' : '⚠︎ hors ligne';
+  el.textContent = kind === 'busy' ? '⟳' : kind === 'ok' ? '✓' : t('⚠︎ hors ligne');
   el.classList.add('on');
   clearTimeout(syncTimer);
   if(kind !== 'busy') syncTimer = setTimeout(()=> el.classList.remove('on'), 1600);
@@ -1076,17 +1375,19 @@ function explainError(err){
   const code = err && err.code;
   console.error('[Petite Fête]', code || '', msg, err);
   if(code === '42P01' || code === 'PGRST205' || /does not exist|schema cache/i.test(msg))
-    return "Tables absentes — exécute le SQL de migration dans Supabase.";
+    return t("Tables absentes — exécute le SQL de migration dans Supabase.");
   if(code === '42501' || /row-level security|violates.*policy/i.test(msg))
-    return "RLS bloque l'écriture — crée les policies \"allow all\".";
+    return t("RLS bloque l'écriture — crée les policies \"allow all\".");
   if(/Failed to fetch|NetworkError|Load failed/i.test(msg))
-    return "Supabase injoignable — projet en pause ou URL incorrecte ?";
+    return t("Supabase injoignable — projet en pause ou URL incorrecte ?");
   if(/JWT|apikey|Invalid API key|expired/i.test(msg))
-    return "Clé anon invalide ou expirée.";
-  return "Erreur Supabase : " + (msg || 'inconnue') + " (voir console)";
+    return t("Clé anon invalide ou expirée.");
+  return t("Erreur Supabase : ") + (msg || 'inconnue') + t(" (voir console)");
 }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-function plural(n, one, many){ return n + ' ' + (n > 1 ? many : one); }
+// mot au singulier ou pluriel, traduit (FR : 0 et 1 au singulier ; EN : seul 1 au singulier)
+function pw(n, one, many){ return t((LANG === 'en' ? n !== 1 : n > 1) ? many : one); }
+function plural(n, one, many){ return n + ' ' + pw(n, one, many); }
 
 /* ========================= DÉCOR ========================= */
 function paintDeco(kind){
@@ -1149,8 +1450,8 @@ function paintIntro(){
   $$('.intro-slide').forEach(s => s.classList.toggle('hidden', +s.dataset.slide !== introAt));
   $$('#intro-dots .dot').forEach((d,i) => d.classList.toggle('on', i === introAt));
   $('#btn-intro-next').textContent = introAt < INTRO_LAST
-    ? 'Continuer'
-    : (fromSettings ? 'Retour à la fête 📸' : 'Créer notre album 🎉');
+    ? t('Continuer')
+    : (fromSettings ? t('Retour à la fête 📸') : t('Créer notre album 🎉'));
   $('#btn-intro-skip').classList.toggle('hidden', introAt === INTRO_LAST || fromSettings);
   $('#view-intro').scrollTop = 0;
 }
@@ -1183,8 +1484,6 @@ function goHome(){
   setSky('home');
   showHomeBlock('home');
   renderSessions();
-  const lw = $('#local-warn');
-  if(lw) lw.classList.toggle('hidden', !String(e.id).startsWith('local-'));
 }
 
 function goTab(tab){
@@ -1211,7 +1510,7 @@ let cdTimer = null;
 function startCountdown(){
   clearInterval(cdTimer);
   cdTimer = setInterval(() => {
-    if(!isRevealLocked()){ clearInterval(cdTimer); goTab('gallery'); toast('Les photos sont révélées ! 🎉'); burstConfetti(); return; }
+    if(!isRevealLocked()){ clearInterval(cdTimer); goTab('gallery'); toast(t('Les photos sont révélées ! 🎉')); burstConfetti(); return; }
     paintCountdown();
   }, 1000);
 }
@@ -1434,8 +1733,8 @@ function sessionRow(x, cur){
   return '<button class="sess" data-sess="'+esc(e.id)+'" aria-current="'+(cur?'true':'false')+'">'+
     '<span class="se">'+(TYPE_ICON[e.eventType] || '✨')+'</span>'+
     '<span class="sx"><span class="sn">'+esc(e.eventName)+'</span>'+
-    '<span class="sc">'+esc(e.code)+(String(e.id).startsWith('local-')?' · local':'')+(x.isHost?' · organisateur':'')+'</span></span>'+
-    '<span class="sk">'+(cur ? 'Ici' : 'Ouvrir')+'</span>'+
+    '<span class="sc">'+esc(e.code)+(String(e.id).startsWith('local-')?' · local':'')+(x.isHost?' · '+t('organisateur'):'')+'</span></span>'+
+    '<span class="sk">'+(cur ? t('Ici') : t('Ouvrir'))+'</span>'+
   '</button>';
 }
 
@@ -1447,14 +1746,14 @@ function renderSessions(){
   const hs = $('#home-sessions');
   if(list.length){
     hs.classList.remove('hidden');
-    hs.innerHTML = '<p class="eyebrow">Mes albums</p>' + list.map(x => sessionRow(x, false)).join('');
+    hs.innerHTML = '<p class="eyebrow">' + t('Mes albums') + '</p>' + list.map(x => sessionRow(x, false)).join('');
   } else hs.classList.add('hidden');
 
   // réglages
   const ss = $('#set-sessions');
   if(ss) ss.innerHTML = list.length
     ? list.map(x => sessionRow(x, x.event.id === curId)).join('')
-    : '<p class="note" style="margin-top:4px">Aucun autre album.</p>';
+    : '<p class="note" style="margin-top:4px">' + t('Aucun autre album.') + '</p>';
 }
 
 function render(){
@@ -1465,9 +1764,9 @@ function render(){
 
   // header caméra
   $('#cam-evname').textContent = e.eventName;
-  $('#cam-meta').textContent = (state.me ? state.me + ' · ' : '') + e.code + (state.isHost ? ' · organisateur' : '');
+  $('#cam-meta').textContent = (state.me ? state.me + ' · ' : '') + e.code + (state.isHost ? ' · ' + t('organisateur') : '');
   const nv = state.photos.filter(isVideo).length;
-  $('#cam-count').textContent = n === 0 ? '0 souvenir 📸'
+  $('#cam-count').textContent = n === 0 ? t('0 souvenir 📸')
     : (nv ? n + ' · ' + nv + ' 🎥' : plural(n, 'photo', 'photos') + ' 📸');
 
   // état fermé
@@ -1481,35 +1780,35 @@ function render(){
 
   if(L && !closed){
     $('#cam-count').textContent = state.me
-      ? (left + '/' + L + ' pose' + (left > 1 ? 's' : '') + ' 🎞️')
-      : (L + ' poses 🎞️');
+      ? (left + '/' + L + ' ' + pw(left, 'pose', 'poses') + ' 🎞️')
+      : (L + ' ' + t('poses') + ' 🎞️');
   }
 
-  $('#cam-cap').textContent = closed ? "L'album est terminé 🎉"
-    : empty ? 'Pellicule terminée 🎞️'
-    : 'Prends une photo';
+  $('#cam-cap').textContent = closed ? t("L'album est terminé 🎉")
+    : empty ? t('Pellicule terminée 🎞️')
+    : t('Prends une photo');
   $('#cam-sub').textContent = closed
-    ? 'Merci pour tes souvenirs. La galerie reste ouverte.'
-    : empty ? 'Tu as utilisé tes ' + L + ' poses. Profite de la fête !'
-    : (L && state.me ? 'Il te reste ' + left + ' pose' + (left > 1 ? 's' : '') + '. Choisis bien tes moments. '
-                     : (L ? L + ' poses par invité. ' : ''))
-      + (isRevealLocked() ? 'Révélation à l\'heure prévue.' : (L ? '' : "Elle rejoint l'album de toute la fête."));
+    ? t('Merci pour tes souvenirs. La galerie reste ouverte.')
+    : empty ? t('Tu as utilisé tes {n} poses. Profite de la fête !', {n:L})
+    : (L && state.me ? t('Il te reste {n} {w}. Choisis bien tes moments.', {n:left, w:pw(left,'pose','poses')}) + ' '
+                     : (L ? t('{n} poses par invité.', {n:L}) + ' ' : ''))
+      + (isRevealLocked() ? t("Révélation à l'heure prévue.") : (L ? '' : t("Elle rejoint l'album de toute la fête.")));
 
   // strip
   const strip = $('#strip');
   const last = state.photos.slice(-12).reverse();
   if(isRevealLocked()){
-    strip.innerHTML = '<div class="empty">🌙 ' + plural(n,'photo cachée','photos cachées') + ' jusqu\'à la révélation.</div>';
+    strip.innerHTML = '<div class="empty">🌙 ' + plural(n,t('photo cachée'),t('photos cachées')) + ' ' + t("jusqu'à la révélation.") + '</div>';
     $('#strip-more').textContent = '';
   } else if(last.length === 0){
-    strip.innerHTML = '<div class="empty">Aucune photo pour l\'instant. Lance-toi !</div>';
+    strip.innerHTML = '<div class="empty">' + t("Aucune photo pour l'instant. Lance-toi !") + '</div>';
     $('#strip-more').textContent = '';
   } else {
     strip.innerHTML = last.map(p => {
       const i = state.photos.findIndex(x => x.id === p.id);
       return '<div class="wrap-s">'+
         (isVideo(p) ? '<span class="badge-v">▶ '+esc(fmtDur(p.duration_s))+'</span>' : '')+
-        '<img src="'+thumbOf(p)+'" alt="'+(isVideo(p)?'Vidéo':'Photo')+' de '+esc(p.taken_by||'un invité')+'" data-i="'+i+'">'+
+        '<img src="'+thumbOf(p)+'" alt="'+t(isVideo(p)?'Vidéo de {n}':'Photo de {n}', {n:esc(p.taken_by||t('un invité'))})+'" data-i="'+i+'">'+
       '</div>';
     }).join('');
     $('#strip-more').textContent = n > 12 ? '+' + (n-12) : '';
@@ -1517,60 +1816,62 @@ function render(){
 
   // galerie
   $('#gal-meta').textContent = n === 0
-    ? 'Rien encore'
-    : plural(n,'souvenir partagé','souvenirs partagés') + ' par ' + plural(people.length || 1,'personne','personnes') + ' 💕';
+    ? t('Rien encore')
+    : t('{a} par {b} 💕', {a: plural(n,'souvenir partagé','souvenirs partagés'), b: plural(people.length || 1,'personne','personnes')});
   const gb = $('#gal-body');
   if(isRevealLocked()){
     gb.innerHTML =
       '<div class="reveal-wrap">'+
         '<div class="reveal-lock">🌙</div>'+
-        '<h2 style="margin-top:16px">La pellicule se développe</h2>'+
-        '<p class="sub">'+ plural(n,'photo déjà prise','photos déjà prises') +'. Tout le monde les découvrira en même temps.</p>'+
+        '<h2 style="margin-top:16px">'+t('La pellicule se développe')+'</h2>'+
+        '<p class="sub">'+ plural(n,t('photo déjà prise'),t('photos déjà prises')) +'. '+t('Tout le monde les découvrira en même temps.')+'</p>'+
         '<div class="cd-row">'+
-          '<div class="cd-cell"><div class="n" id="cd-h">00</div><div class="l">heures</div></div>'+
-          '<div class="cd-cell"><div class="n" id="cd-m">00</div><div class="l">minutes</div></div>'+
-          '<div class="cd-cell"><div class="n" id="cd-s">00</div><div class="l">secondes</div></div>'+
+          '<div class="cd-cell"><div class="n" id="cd-h">00</div><div class="l">'+t('heures')+'</div></div>'+
+          '<div class="cd-cell"><div class="n" id="cd-m">00</div><div class="l">'+t('minutes')+'</div></div>'+
+          '<div class="cd-cell"><div class="n" id="cd-s">00</div><div class="l">'+t('secondes')+'</div></div>'+
         '</div>'+
       '</div>';
     paintCountdown(); startCountdown();
   } else if(n === 0){
-    gb.innerHTML = '<div class="empty-state"><div class="big">🖼️</div><div class="t">La galerie est vide</div><div class="d">Prends la première photo depuis l\'onglet Appareil.</div></div>';
+    gb.innerHTML = '<div class="empty-state"><div class="big">🖼️</div><div class="t">'+t('La galerie est vide')+'</div><div class="d">'+t("Prends la première photo depuis l'onglet Appareil.")+'</div></div>';
   } else {
     gb.innerHTML = '<div class="grid">' + state.photos.slice().reverse().map(p => {
       const i = state.photos.findIndex(x => x.id === p.id);
       return '<div class="ph" data-i="'+i+'">'+
         (isVideo(p) ? '<span class="badge-v">▶ '+esc(fmtDur(p.duration_s))+'</span>' : '')+
-        '<img src="'+thumbOf(p)+'" alt="'+(isVideo(p)?'Vidéo':'Photo')+' de '+esc(p.taken_by||'un invité')+'" loading="lazy">'+
-        '<div class="by"><span>'+esc(p.taken_by || 'Invité')+'</span><span class="rx">'+esc(p.emoji_reaction||'')+'</span></div>'+
+        '<img src="'+thumbOf(p)+'" alt="'+t(isVideo(p)?'Vidéo de {n}':'Photo de {n}', {n:esc(p.taken_by||t('un invité'))})+'" loading="lazy">'+
+        '<div class="by"><span>'+esc(p.taken_by || t('Invité'))+'</span><span class="rx">'+esc(p.emoji_reaction||'')+'</span></div>'+
       '</div>';
     }).join('') + '</div>';
   }
 
   // réglages
   $('#set-meta').textContent = e.eventName;
-  $('#set-evname').textContent = e.eventName + (closed ? ' · terminé 🔒' : '');
+  $('#set-evname').textContent = e.eventName + (closed ? ' · ' + t('terminé') + ' 🔒' : '');
   $('#set-code').textContent = e.code;
   $('#set-people').innerHTML = people.length
     ? people.map(p => '<span>'+esc(p)+'</span>').join('')
-    : '<span>Personne encore</span>';
+    : '<span>'+t('Personne encore')+'</span>';
   $('#set-host-card').classList.toggle('hidden', !state.isHost || closed);
   $('#btn-rename').classList.toggle('hidden', !state.isHost);
-  $('#btn-delete').textContent = state.isHost ? 'Supprimer cet album 🗑️' : 'Retirer de mes albums 🗑️';
+  $('#btn-delete').textContent = state.isHost ? t('Supprimer cet album 🗑️') : t('Retirer de mes albums 🗑️');
   $('#del-note').textContent = state.isHost
-    ? "La suppression efface l'album et toutes ses photos, pour tout le monde."
-    : "L'album sera retiré de ta liste, mais continuera d'exister pour les autres.";
+    ? t("La suppression efface l'album et toutes ses photos, pour tout le monde.")
+    : t("L'album sera retiré de ta liste, mais continuera d'exister pour les autres.");
   const Lr = poseLimit();
   $('#lim-info').textContent = Lr
-    ? Lr + ' poses par invité' + (state.me ? ' · tu en as utilisé ' + usedBy(state.me) : '') + '.'
-    : 'Illimité : chacun prend autant de photos qu\'il veut.';
+    ? t('{n} poses par invité', {n:Lr}) + (state.me ? ' · ' + t('tu en as utilisé {u}', {u:usedBy(state.me)}) : '') + '.'
+    : t('Illimité : chacun prend autant de photos qu\'il veut.');
   $('#set-limit-chips').classList.toggle('hidden', !state.isHost);
   $$('#set-limit-chips .chip').forEach(c => c.setAttribute('aria-pressed', String(+c.dataset.limit === Lr)));
   renderSessions();
+  const lw = $('#local-warn');
+  if(lw) lw.classList.toggle('hidden', !String(e.id).startsWith('local-'));
 }
 
 /* ========================= ACTIONS ========================= */
 function enterEvent(ev, me, isHost){
-  if(!ev || !ev.id){ toast("Album introuvable. Reviens à l'accueil."); goHome(); return; }
+  if(!ev || !ev.id){ toast(t("Album introuvable. Reviens à l'accueil.")); goHome(); return; }
 
   // fermer le canal de l'album précédent — sinon abonnements fantômes
   if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
@@ -1591,7 +1892,7 @@ function switchTo(id){
   const s = getSessions().find(x => x.event && x.event.id === id);
   if(!s) return;
   enterEvent(s.event, s.me, s.isHost);
-  toast('Album : ' + s.event.eventName);
+  toast(t('Album : ') + s.event.eventName);
 }
 
 /* --- intro --- */
@@ -1629,10 +1930,10 @@ $$('[data-go]').forEach(b => b.addEventListener('click', ev => {
 
 $('#link-local').addEventListener('click', ev => {
   ev.preventDefault();
-  if(!confirm("Mode local : les photos restent sur CE téléphone.\n\nTes invités ne pourront PAS rejoindre tes albums.\n\nContinuer ?")) return;
+  if(!confirm(t("Mode local : les photos restent sur CE téléphone.\n\nTes invités ne pourront PAS rejoindre tes albums.\n\nContinuer ?"))) return;
   lsSet(K.SKIP, "1"); sb = null;
   paintLocalBar();
-  toast('Mode local activé — album non partageable.', 4000);
+  toast(t('Mode local activé — album non partageable.'), 4000);
   showHomeBlock('create');
 });
 
@@ -1647,7 +1948,7 @@ $('#localbar').addEventListener('click', async ev => {
   lsDel(K.SKIP);
   if(!initSupabase()){
     lsSet(K.SKIP, "1");
-    toast("Connexion impossible. Vérifie ton réseau puis réessaie.", 5000);
+    toast(t("Connexion impossible. Vérifie ton réseau puis réessaie."), 5000);
     return;
   }
   sync('busy');
@@ -1656,7 +1957,7 @@ $('#localbar').addEventListener('click', async ev => {
     if(error) throw error;
     paintLocalBar();
     sync('ok');
-    toast("Synchronisation réactivée ✓ Crée un nouvel album pour le partager.", 6000);
+    toast(t("Synchronisation réactivée ✓ Crée un nouvel album pour le partager."), 6000);
     render();
   }catch(err){
     sb = null; lsSet(K.SKIP, "1"); paintLocalBar(); sync('off');
@@ -1680,7 +1981,7 @@ $('#set-limit-chips').addEventListener('click', async ev => {
   }
   state.event.photoLimit = v;
   touchSession(); sync('ok'); render();
-  toast(v ? 'Limite : ' + v + ' poses par invité' : 'Poses illimitées');
+  toast(v ? t('Limite : {n} poses par invité', {n:v}) : t('Poses illimitées'));
 });
 
 $('#type-chips').addEventListener('click', ev => {
@@ -1706,18 +2007,18 @@ $('#btn-create').addEventListener('click', async () => {
   const eventName = $('#in-evname').value.trim();
   const childName = $('#in-child').value.trim();
   const hostName  = $('#in-host').value.trim();
-  if(!eventName){ toast('Donne un nom à la fête.'); $('#in-evname').focus(); return; }
-  if(!hostName){ toast('Ajoute ton prénom.'); $('#in-host').focus(); return; }
+  if(!eventName){ toast(t('Donne un nom à la fête.')); $('#in-evname').focus(); return; }
+  if(!hostName){ toast(t('Ajoute ton prénom.')); $('#in-host').focus(); return; }
   let revealAt = null;
   if(state.revealMode === 'scheduled'){
     const v = $('#in-revealat').value;
-    if(!v){ toast('Choisis l\'heure de la révélation.'); return; }
+    if(!v){ toast(t('Choisis l\'heure de la révélation.')); return; }
     revealAt = new Date(v).toISOString();
   }
-  const btn = $('#btn-create'); btn.disabled = true; btn.textContent = 'Création…'; sync('busy');
+  const btn = $('#btn-create'); btn.disabled = true; btn.textContent = t('Création…'); sync('busy');
   try{
-    if(!sb && !confirm("Tu es en mode local : cet album ne sera PAS partageable.\n\nCréer quand même ?")){
-      btn.disabled = false; btn.textContent = "Créer l'album 🎉"; return;
+    if(!sb && !confirm(t("Tu es en mode local : cet album ne sera PAS partageable.\n\nCréer quand même ?"))){
+      btn.disabled = false; btn.textContent = t("Créer l'album 🎉"); return;
     }
     const ev = await createEvent({
       eventName, childName, hostName,
@@ -1738,16 +2039,16 @@ $('#btn-create').addEventListener('click', async () => {
     sync('off');
     toast(explainError(err), 6000);
   }finally{
-    btn.disabled = false; btn.textContent = 'Créer l\'album 🎉';
+    btn.disabled = false; btn.textContent = t('Créer l\'album 🎉');
   }
 });
 
 $('#btn-share').addEventListener('click', async () => {
   const ev = state.event; if(!ev) return;
-  const txt = ev.eventName + ' — rejoins l\'album photo avec le code ' + ev.code;
+  const txt = t("{e} — rejoins l'album photo avec le code {c}", {e:ev.eventName, c:ev.code});
   if(navigator.share){ try{ await navigator.share({ text: txt }); return; }catch(e){} }
-  try{ await navigator.clipboard.writeText(ev.code); toast('Code copié 📋'); }
-  catch(e){ toast('Code : ' + ev.code); }
+  try{ await navigator.clipboard.writeText(ev.code); toast(t('Code copié 📋')); }
+  catch(e){ toast(t('Code : ') + ev.code); }
 });
 
 $('#btn-enter-created').addEventListener('click', () => {
@@ -1761,28 +2062,28 @@ $('#in-code').addEventListener('input', ev => {
 $('#btn-lookup').addEventListener('click', async () => {
   let code = $('#in-code').value.trim().toUpperCase();
   if(code && !code.startsWith('FETE-')) code = 'FETE-' + code.replace(/^FETE/,'');
-  if(!/^FETE-[A-Z0-9]{4}$/.test(code)){ toast('Le code ressemble à FETE-AB2K.'); return; }
-  if(!sb){ toast('Mode local : impossible de rejoindre une fête.'); return; }
-  const btn = $('#btn-lookup'); btn.disabled = true; btn.textContent = 'Recherche…'; sync('busy');
+  if(!/^FETE-[A-Z0-9]{4}$/.test(code)){ toast(t('Le code ressemble à FETE-AB2K.')); return; }
+  if(!sb){ toast(t('Mode local : impossible de rejoindre une fête.')); return; }
+  const btn = $('#btn-lookup'); btn.disabled = true; btn.textContent = t('Recherche…'); sync('busy');
   try{
     const ev = await fetchEventByCode(code);
-    if(!ev){ sync('ok'); toast('Aucune fête avec ce code.'); return; }
+    if(!ev){ sync('ok'); toast(t('Aucune fête avec ce code.')); return; }
     state.event = ev;
-    $('#join-title').textContent = '🎉 Tu rejoins : ' + ev.eventName;
+    $('#join-title').textContent = t('🎉 Tu rejoins : ') + ev.eventName;
     $('#join-found').classList.remove('hidden');
     $('#in-photog').focus();
     sync('ok');
   }catch(e){
-    sync('off'); toast('Recherche impossible. Vérifie ta connexion.');
+    sync('off'); toast(t('Recherche impossible. Vérifie ta connexion.'));
   }finally{
-    btn.disabled = false; btn.textContent = 'Chercher la fête 🔎';
+    btn.disabled = false; btn.textContent = t('Chercher la fête 🔎');
   }
 });
 
 $('#btn-join').addEventListener('click', () => {
   const me = $('#in-photog').value.trim();
-  if(!me){ toast('Ajoute ton prénom.'); $('#in-photog').focus(); return; }
-  if(!state.event){ toast('Cherche d\'abord la fête.'); return; }
+  if(!me){ toast(t('Ajoute ton prénom.')); $('#in-photog').focus(); return; }
+  if(!state.event){ toast(t('Cherche d\'abord la fête.')); return; }
   lsSet(phKey(state.event.id), []);
   enterEvent(state.event, me, false);
   burstConfetti();
@@ -1799,7 +2100,7 @@ let htAt = 0;
 function paintHowTo(){
   $$('.ht-slide').forEach(x => x.classList.toggle('hidden', +x.dataset.ht !== htAt));
   $$('#ht-dots .dot').forEach((d,i) => d.classList.toggle('on', i === htAt));
-  $('#ht-next').textContent = htAt === 0 ? 'Et ensuite ?' : "C'est parti 📸";
+  $('#ht-next').textContent = htAt === 0 ? t('Et ensuite ?') : t("C'est parti 📸");
 }
 function showHowTo(){
   htAt = 0;
@@ -1852,12 +2153,12 @@ function remainingFor(name){
   return L ? Math.max(0, L - usedBy(name)) : Infinity;
 }
 function outOfPoses(name){
-  toast('Pellicule terminée 🎞️ Tu as utilisé tes ' + poseLimit() + ' poses.', 4500);
+  toast(t('Pellicule terminée 🎞️ Tu as utilisé tes {n} poses.', {n:poseLimit()}), 4500);
 }
 
 /* --- capture --- */
 function openPicker(inputId){
-  if(state.event && state.event.isClosed){ toast('L\'album est terminé 🎉'); return; }
+  if(state.event && state.event.isClosed){ toast(t('L\'album est terminé 🎉')); return; }
   if(state.me && remainingFor(state.me) <= 0){ outOfPoses(state.me); return; }
   const el = $('#' + inputId); el.value = ''; el.click();
 }
@@ -1892,7 +2193,7 @@ async function handleFile(f){
     sync('ok');
   }catch(e){
     console.error('[Petite Fête] média', e);
-    sync('off'); toast('Fichier illisible. Réessaie.');
+    sync('off'); toast(t('Fichier illisible. Réessaie.'));
   }
 }
 
@@ -1911,8 +2212,8 @@ $('#file-lib').addEventListener('change', async ev => {
   let batch = files;
   if(files.length > left){
     batch = files.slice(0, left);
-    toast('Il te reste ' + left + ' pose' + (left > 1 ? 's' : '') + ' : seuls les ' + left + ' premiers fichiers partent.', 5000);
-  } else toast('Envoi de ' + files.length + ' fichiers…', 4000);
+    toast(t('Il te reste {n} {w} : seuls les {n} premiers fichiers partent.', {n:left, w:pw(left,'pose','poses')}), 5000);
+  } else toast(t('Envoi de {n} fichiers…', {n:files.length}), 4000);
   let ok = 0;
   for(const f of batch){
     try{
@@ -1922,7 +2223,7 @@ $('#file-lib').addEventListener('change', async ev => {
       ok++; render();
     }catch(e){ console.error(e); }
   }
-  toast(ok + '/' + batch.length + ' envoyés ✓');
+  toast(t('{a}/{b} envoyés ✓', {a:ok, b:batch.length}));
 });
 
 $('#rx-row').addEventListener('click', ev => {
@@ -1984,13 +2285,13 @@ async function sendMedia(media, name, onProgress){
 $('#btn-send').addEventListener('click', async () => {
   if(!state.pending) return;
   const name = $('#in-prevname').value.trim() || state.me;
-  if(!name){ toast('Ajoute ton prénom.'); $('#in-prevname').focus(); return; }
+  if(!name){ toast(t('Ajoute ton prénom.')); $('#in-prevname').focus(); return; }
   if(remainingFor(name) <= 0){ outOfPoses(name); closePreview(); render(); return; }
   if(name !== state.me){
     state.me = name;
     touchSession();
   }
-  const btn = $('#btn-send'); btn.disabled = true; btn.textContent = 'Envoi…'; sync('busy');
+  const btn = $('#btn-send'); btn.disabled = true; btn.textContent = t('Envoi…'); sync('busy');
   $('#up-bar').classList.remove('hidden');
   const prog = v => { $('#up-fill').style.width = v + '%'; };
   prog(5);
@@ -2002,14 +2303,14 @@ $('#btn-send').addEventListener('click', async () => {
     sync('off');
     console.error('[Petite Fête] envoi', err);
     const m = (err && err.message) || '';
-    if(/Bucket not found/i.test(m)) toast("Bucket 'fete-media' absent — exécute la migration V2.", 6000);
-    else if(/column .* does not exist/i.test(m)) toast("Colonnes manquantes — exécute la migration V2.", 6000);
-    else if(/row-level security|policy/i.test(m))  toast("Policies Storage manquantes — voir migration V2.", 6000);
-    else if(/exceeded the maximum|too large|Payload/i.test(m)) toast("Fichier trop lourd (max 100 Mo).", 5000);
-    else toast("Envoi impossible : " + (m || 'erreur inconnue'), 6000);
+    if(/Bucket not found/i.test(m)) toast(t("Bucket 'fete-media' absent — exécute la migration V2."), 6000);
+    else if(/column .* does not exist/i.test(m)) toast(t("Colonnes manquantes — exécute la migration V2."), 6000);
+    else if(/row-level security|policy/i.test(m))  toast(t("Policies Storage manquantes — voir migration V2."), 6000);
+    else if(/exceeded the maximum|too large|Payload/i.test(m)) toast(t("Fichier trop lourd (max 100 Mo)."), 5000);
+    else toast(t("Envoi impossible : ") + (m || t('erreur inconnue')), 6000);
   }finally{
     $('#up-bar').classList.add('hidden');
-    btn.disabled = false; btn.textContent = 'Envoyer 🚀';
+    btn.disabled = false; btn.textContent = t('Envoyer 🚀');
   }
 });
 
@@ -2041,8 +2342,10 @@ function paintLightbox(){
     }
   }
   const d = new Date(p.taken_at);
-  const hh = String(d.getHours()).padStart(2,'0') + 'h' + String(d.getMinutes()).padStart(2,'0');
-  $('#lb-cap').innerHTML = esc(p.taken_by || 'Invité') + ' ' + esc(p.emoji_reaction || '') + '<span>' + hh + '</span>';
+  const hh = LANG === 'en'
+    ? d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})
+    : String(d.getHours()).padStart(2,'0') + 'h' + String(d.getMinutes()).padStart(2,'0');
+  $('#lb-cap').innerHTML = esc(p.taken_by || t('Invité')) + ' ' + esc(p.emoji_reaction || '') + '<span>' + hh + '</span>';
   $('#lb-pos').textContent = (state.lbIndex + 1) + ' / ' + state.photos.length;
   $('#lb-prev').disabled = state.lbIndex <= 0;
   $('#lb-next').disabled = state.lbIndex >= state.photos.length - 1;
@@ -2076,11 +2379,11 @@ $('#gal-body').addEventListener('click', ev => {
 /* --- renommer --- */
 $('#btn-rename').addEventListener('click', async () => {
   if(!state.event) return;
-  if(!state.isHost){ toast("Seul l'organisateur peut renommer."); return; }
-  const nom = prompt("Nouveau nom de l'album :", state.event.eventName);
+  if(!state.isHost){ toast(t("Seul l'organisateur peut renommer.")); return; }
+  const nom = prompt(t("Nouveau nom de l'album :"), state.event.eventName);
   if(nom === null) return;
   const clean = nom.trim();
-  if(!clean){ toast('Le nom ne peut pas être vide.'); return; }
+  if(!clean){ toast(t('Le nom ne peut pas être vide.')); return; }
 
   sync('busy');
   if(sb && !String(state.event.id).startsWith('local-')){
@@ -2090,7 +2393,7 @@ $('#btn-rename').addEventListener('click', async () => {
   state.event.eventName = clean;
   touchSession();
   sync('ok'); render();
-  toast('Album renommé ✓');
+  toast(t('Album renommé ✓'));
 });
 
 /* --- supprimer --- */
@@ -2099,22 +2402,22 @@ $('#btn-delete').addEventListener('click', async () => {
   const e = state.event, local = String(e.id).startsWith('local-');
 
   if(!state.isHost){
-    if(!confirm("Retirer « " + e.eventName + " » de TES albums ?\n\nL'album continuera d'exister pour les autres.")) return;
+    if(!confirm(t("Retirer « {e} » de TES albums ?\n\nL'album continuera d'exister pour les autres.", {e:e.eventName}))) return;
     dropSession(e.id);
     const rest = getSessions();
     state.event = null; state.photos = []; state.me = ''; state.isHost = false;
     lsDel(K.EV);
     if(rest.length) switchTo(rest[0].event.id); else goHome();
-    toast('Album retiré de ta liste.');
+    toast(t('Album retiré de ta liste.'));
     return;
   }
 
   const n = state.photos.length;
-  if(!confirm("SUPPRIMER « " + e.eventName + " » ?\n\n" +
-      (n ? n + " souvenir(s) seront effacés " : "") +
-      (local ? "de ce téléphone." : "pour TOUS les participants.") +
-      "\n\nCette action est définitive.")) return;
-  if(!confirm("Dernière confirmation : supprimer définitivement ?")) return;
+  if(!confirm(t("SUPPRIMER « {e} » ?", {e:e.eventName}) + "\n\n" +
+      (n ? t("{n} souvenir(s) seront effacés", {n}) + " " : "") +
+      t(local ? "de ce téléphone." : "pour TOUS les participants.") +
+      "\n\n" + t("Cette action est définitive."))) return;
+  if(!confirm(t("Dernière confirmation : supprimer définitivement ?"))) return;
 
   sync('busy');
   if(sb && !local){
@@ -2136,28 +2439,59 @@ $('#btn-delete').addEventListener('click', async () => {
 
   const rest = getSessions();
   sync('ok');
-  toast('Album supprimé.');
+  toast(t('Album supprimé.'));
   if(rest.length) switchTo(rest[0].event.id); else goHome();
 });
 
 $('#btn-copy-code').addEventListener('click', async () => {
   if(!state.event) return;
-  try{ await navigator.clipboard.writeText(state.event.code); toast('Code copié 📋'); }
-  catch(e){ toast('Code : ' + state.event.code); }
+  try{ await navigator.clipboard.writeText(state.event.code); toast(t('Code copié 📋')); }
+  catch(e){ toast(t('Code : ') + state.event.code); }
 });
 
 $('#btn-close-album').addEventListener('click', async () => {
   if(!state.event) return;
-  if(!confirm('Fermer l\'album ? Plus personne ne pourra ajouter de photos.')) return;
+  if(!confirm(t('Fermer l\'album ? Plus personne ne pourra ajouter de photos.'))) return;
   sync('busy');
   if(sb && !String(state.event.id).startsWith('local-')){
     const { error } = await sb.from('once_events').update({ is_closed:true }).eq('id', state.event.id);
-    if(error){ sync('off'); toast('Fermeture impossible. Réessaie.'); return; }
+    if(error){ sync('off'); toast(t('Fermeture impossible. Réessaie.')); return; }
   }
   state.event.isClosed = true;
   touchSession();
   sync('ok'); render();
-  toast('Album fermé 🔒 La galerie reste ouverte.');
+  toast(t('Album fermé 🔒 La galerie reste ouverte.'));
+});
+
+// Quitter la vue album proprement et ouvrir un bloc de l'accueil
+function leaveToHome(block){
+  if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
+  clearInterval(cdTimer);
+  $('#tabbar').classList.add('hidden');
+  ['camera','gallery','settings'].forEach(t => $('#view-'+t).classList.add('hidden'));
+  $('#view-home').classList.remove('hidden');
+  setSky('home');
+  showHomeBlock(block);
+}
+
+$$('#lang-row .lang-btn').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === LANG)));
+$('#lang-row').addEventListener('click', ev => {
+  const b = ev.target.closest('.lang-btn'); if(!b) return;
+  setLang(b.dataset.lang);
+});
+
+$('#btn-new-album').addEventListener('click', () => {
+  // formulaire vierge, prénom de l'organisateur pré-rempli
+  $('#in-evname').value = '';
+  $('#in-child').value = '';
+  $('#in-host').value = state.me || '';
+  state.type = 'birthday'; state.revealMode = 'immediate'; state.limit = 0;
+  $$('#type-chips .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.type === 'birthday')));
+  $$('#reveal-chips .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.reveal === 'immediate')));
+  $$('#limit-chips .chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.limit === '0')));
+  $('#reveal-when').classList.add('hidden');
+  leaveToHome('create');
+  setTimeout(() => $('#in-evname').focus(), 300);
 });
 
 $('#btn-add-album').addEventListener('click', () => {
@@ -2176,7 +2510,7 @@ $('#qual-row').addEventListener('click', ev => {
   $$('#qual-row .chip').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
   state.quality = b.dataset.q;
   lsSet(K.QUAL, state.quality);
-  toast('Qualité : ' + b.textContent.trim());
+  toast(t('Qualité : ') + b.textContent.trim());
 });
 
 $('#btn-howto').addEventListener('click', showHowTo);
@@ -2188,7 +2522,7 @@ $('#btn-show-intro').addEventListener('click', () => {
 });
 
 $('#btn-leave').addEventListener('click', () => {
-  if(!confirm('Quitter cet album ? Tu pourras y revenir avec le code.')) return;
+  if(!confirm(t('Quitter cet album ? Tu pourras y revenir avec le code.'))) return;
   if(channel){ try{ sb.removeChannel(channel); }catch(e){} channel = null; }
   clearInterval(cdTimer);
   const id = state.event && state.event.id;
@@ -2241,7 +2575,9 @@ async function boot(){
   if(saved && saved.event && saved.event.id){
     state.event = saved.event; state.me = saved.me || ''; state.isHost = !!saved.isHost;
     state.photos = lsGet(phKey(state.event.id), []);
-    goTab('camera');
+    let reopen = false;
+    try{ reopen = localStorage.getItem('once_open_settings') === '1'; localStorage.removeItem('once_open_settings'); }catch(e){}
+    goTab(reopen ? 'settings' : 'camera');
     render();
     await refreshEvent();
     await loadPhotos();
