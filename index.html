@@ -316,7 +316,7 @@ body[data-sky="night"] .empty-state .t{color:#fff}
 
 /* ---------- OVERLAYS ---------- */
 .ov{
-  position:fixed;inset:0;z-index:70;background:rgba(36,27,71,.94);
+  position:fixed;inset:0;z-index:85;background:rgba(36,27,71,.94);  /* au-dessus du bandeau mode local (80), sinon il cache le ✕ */
   display:flex;flex-direction:column;
   animation:fade .25s ease both;
 }
@@ -1191,6 +1191,8 @@ const EN = {
 "Fichier trop lourd (max 100 Mo).": "File too large (max 100 MB).",
 "Envoi impossible :": "Upload failed:",
 "erreur inconnue": "unknown error",
+"{n} ko": "{n} KB",
+"{n} Mo": "{n} MB",
 "Seul l'organisateur peut renommer.": "Only the host can rename the album.",
 "Nouveau nom de l'album :": "New album name:",
 "Le nom ne peut pas être vide.": "The name can't be empty.",
@@ -1261,13 +1263,14 @@ window.addEventListener('error', e => {
   try{ toast(t('Erreur : ') + (e.message || t('erreur inconnue')), 7000); }catch(_){}
 });
 window.addEventListener('unhandledrejection', e => {
-  const m = (e.reason && (e.reason.message || e.reason)) || 'inconnue';
+  const m = (e.reason && (e.reason.message || e.reason)) || t('erreur inconnue');
   console.error('[Petite Fête] promesse rejetée', e.reason);
   try{ toast(t('Erreur : ') + m, 7000); }catch(_){}
 });
 
 /* ========================= CONFIG ========================= */
-const APP_VERSION = "2.7";   // 2.7 = version anglaise (réglages : 🇫🇷 / 🇺🇸)
+const APP_VERSION = "2.8";   // 2.8 = ✕ des overlays plus caché par le bandeau mode local ; « inconnue », ko/Mo traduits
+                             // 2.7 = version anglaise (réglages : 🇫🇷 / 🇺🇸)
 const SUPABASE_URL = "https://yiuloyqlrvbptvgkuizl.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlpdWxveXFscnZicHR2Z2t1aXpsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYxMDgxMDAsImV4cCI6MjEwMTY4NDEwMH0.E4erMN5fJUVrf2gIjtOxn5gTgTBw82b7DWLPCpSOjCI";
 
@@ -1382,7 +1385,7 @@ function explainError(err){
     return t("Supabase injoignable — projet en pause ou URL incorrecte ?");
   if(/JWT|apikey|Invalid API key|expired/i.test(msg))
     return t("Clé anon invalide ou expirée.");
-  return t("Erreur Supabase : ") + (msg || 'inconnue') + t(" (voir console)");
+  return t("Erreur Supabase : ") + (msg || t('erreur inconnue')) + t(" (voir console)");
 }
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 // mot au singulier ou pluriel, traduit (FR : 0 et 1 au singulier ; EN : seul 1 au singulier)
@@ -1611,8 +1614,8 @@ function processVideo(file){
 }
 
 function fmtSize(bytes){
-  if(bytes < 1024*1024) return Math.round(bytes/1024) + ' ko';
-  return (bytes/1024/1024).toFixed(1) + ' Mo';
+  if(bytes < 1024*1024) return t('{n} ko', {n: Math.round(bytes/1024)});
+  return t('{n} Mo', {n: (bytes/1024/1024).toFixed(1)});
 }
 function fmtDur(s){
   if(!s || !isFinite(s)) return '';

@@ -167,7 +167,7 @@ async function journey(lang, browser) {
       return el.contains(top) ? null : '#' + (top.closest('[id]') || {}).id;
     });
     if (cover) {
-      warn(where, `bouton ✕ de la lightbox recouvert par ${cover} : impossible de la fermer au doigt`);
+      fail(where, `bouton ✕ de la lightbox recouvert par ${cover} : impossible de la fermer au doigt`);
       await page.$eval('#lb-close', el => el.click());
     } else await page.click('#lb-close');
     expect(!(await visible('#lightbox')), 'lightbox pas refermée');
