@@ -1,0 +1,3 @@
+# GitHub Pages (Jekyll) : outillage de test non publié
+exclude:
+  - tests
